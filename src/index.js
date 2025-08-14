@@ -98,7 +98,28 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 				poster: r.thumbnail,
 				posterShape: 'landscape',
 				logo: r.channelThumbnail || undefined,
-				background: r.thumbnail
+				background: r.thumbnail,
+				// Aggiungi campi meta completi per Stremio
+				genre: ['YouTube'],
+				releaseInfo: r.publishedAt ? new Date(r.publishedAt).getFullYear().toString() : undefined,
+				director: r.channelTitle,
+				cast: [r.channelTitle],
+				country: 'YouTube',
+				language: 'it',
+				subtitles: [],
+				// Metadati aggiuntivi
+				imdbRating: undefined,
+				rating: undefined,
+				year: r.publishedAt ? new Date(r.publishedAt).getFullYear() : undefined,
+				released: r.publishedAt,
+				// Per la navigazione
+				links: [
+					{
+						name: 'YouTube',
+						category: 'external',
+						url: `https://www.youtube.com/watch?v=${r.videoId}`
+					}
+				]
 			}));
 			return res.json({ metas });
 		}
@@ -114,7 +135,10 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 					name: c.name,
 					description: `Canale: ${c.url}`,
 					poster: c.channelThumbnail || 'https://www.youtube.com/s/desktop/99a30123/img/favicon_144x144.png',
-					posterShape: 'landscape'
+					posterShape: 'landscape',
+					genre: ['YouTube'],
+					country: 'YouTube',
+					language: 'it'
 				}));
 				return res.json({ metas: availableChannels });
 			}
@@ -134,7 +158,28 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 				poster: r.thumbnail,
 				posterShape: 'landscape',
 				logo: r.channelThumbnail || undefined,
-				background: r.thumbnail
+				background: r.thumbnail,
+				// Aggiungi campi meta completi per Stremio
+				genre: ['YouTube'],
+				releaseInfo: r.publishedAt ? new Date(r.publishedAt).getFullYear().toString() : undefined,
+				director: r.channelTitle,
+				cast: [r.channelTitle],
+				country: 'YouTube',
+				language: 'it',
+				subtitles: [],
+				// Metadati aggiuntivi
+				imdbRating: undefined,
+				rating: undefined,
+				year: r.publishedAt ? new Date(r.publishedAt).getFullYear() : undefined,
+				released: r.publishedAt,
+				// Per la navigazione
+				links: [
+					{
+						name: 'YouTube',
+						category: 'external',
+						url: `https://www.youtube.com/watch?v=${r.videoId}`
+					}
+				]
 			}));
 			return res.json({ metas });
 		}
@@ -149,21 +194,41 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 // Stream
 app.get('/stream/:type/:id.json', async (req, res) => {
 	const { id } = req.params;
-	const videoId = String(id || '').replace(/^yt_/i, '');
-	if (!videoId) return res.json({ streams: [] });
+	// Estrai il video ID correttamente da yt_VIDEOID o VIDEOID
+	let videoId = String(id || '');
+	if (videoId.startsWith('yt_')) {
+		videoId = videoId.substring(3);
+	} else if (videoId.startsWith('genre_')) {
+		// Se è un genere (canale), non è un video
+		return res.json({ streams: [] });
+	}
+	
+	if (!videoId || videoId.length < 10) {
+		console.error('Stream error: Invalid video ID:', id);
+		return res.json({ streams: [] });
+	}
+	
 	try {
 		const url = await getStreamUrlForVideo(videoId);
-		if (!url) return res.json({ streams: [] });
+		if (!url) {
+			console.error('Stream error: No stream URL found for video:', videoId);
+			return res.json({ streams: [] });
+		}
+		
 		return res.json({
 			streams: [
 				{
 					url,
-					title: 'OMG YouTube'
+					title: 'OMG YouTube',
+					// Aggiungi metadati per lo stream
+					ytId: videoId,
+					quality: 'best',
+					format: 'mp4'
 				}
 			]
 		});
 	} catch (err) {
-		console.error('Stream error:', err.message);
+		console.error('Stream error:', err.message, 'for video:', videoId);
 		return res.json({ streams: [] });
 	}
 });
