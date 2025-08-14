@@ -333,7 +333,7 @@ app.get('/', (req, res) => {
 
     <div class="card">
       <div class="row">
-        <div><strong>URL manifest</strong></div>
+        <div><strong>URL manifest (per Stremio)</strong></div>
         <div class="hint" style="margin: 8px 0;">
           <code id="manifestUrl" data-url="${manifestUrl}">${manifestUrl}</code>
         </div>
@@ -366,8 +366,8 @@ app.get('/', (req, res) => {
 
     <div class="card">
       <div class="row">
-        <div><strong>URL configurazione</strong></div>
-        <div class="hint">Questo URL include le impostazioni correnti in chiaro o base64 per condividerle/ricaricarle su questa pagina. Non necessario per Stremio.</div>
+        <div><strong>URL configurazione (NON per Stremio)</strong></div>
+        <div class="hint">Questo URL include le impostazioni correnti (API key e canali) per condividerle/ricaricarle su questa pagina admin. <strong>NON va installato in Stremio</strong> - usa solo l'URL manifest sopra.</div>
       </div>
       <div class="actions">
         <button class="btn ghost" type="button" onclick="generateConfigUrl(false)">Genera URL (chiaro)</button>
