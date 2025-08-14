@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  omg-youtube:
+    image: mccoy88f/omg-youtube:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: omg-youtube
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      # Imposta a dominio:porta pubblico se esponi dietro reverse proxy (serve solo a mostrare URL nella UI)
+      - PUBLIC_HOST=localhost:3100
+    ports:
+      - "3100:3100"
+    volumes:
+      - omg-youtube-data:/app/data
+
+volumes:
+  omg-youtube-data:
+
+
