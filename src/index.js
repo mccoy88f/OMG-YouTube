@@ -253,17 +253,21 @@ app.get('/', (req, res) => {
       const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, channels }) });
       const data = await res.json();
       const out = document.getElementById('status');
-      out.textContent = data.ok ? 'Salvato.' : 'Errore';
-      out.className = data.ok ? 'ok' : 'err';
-      setTimeout(()=>{ out.textContent=''; out.className=''; }, 2500);
-      // Ricarica i campi dalla risposta (se abbiamo restituito l'oggetto config)
-      if (data && (data.apiKey || data.channels)) {
+      // Controlla se la risposta contiene apiKey o channels (successo) o è un errore
+      if (data && (data.apiKey !== undefined || data.channels !== undefined)) {
+        out.textContent = 'Salvato.';
+        out.className = 'ok';
+        // Ricarica i campi dalla risposta
         if (typeof data.apiKey === 'string') document.getElementById('apiKey').value = data.apiKey;
         if (Array.isArray(data.channels)) {
           const lines = data.channels.map(c => (c.name ? (c.name + '\\t' + (c.url||'')) : (c.url||'')));
           document.getElementById('channels').value = lines.join('\\n');
         }
+      } else {
+        out.textContent = 'Errore nel salvataggio';
+        out.className = 'err';
       }
+      setTimeout(()=>{ out.textContent=''; out.className=''; }, 2500);
       refreshManifestUi();
     }
     function getOrigin() { return window.location.origin; }
@@ -274,7 +278,10 @@ app.get('/', (req, res) => {
       const url = getManifestUrl();
       document.getElementById('manifestUrl').textContent = url;
       document.getElementById('manifestUrl').setAttribute('data-url', url);
-      document.getElementById('manifestUrlInput').value = url + '\\nEsempio catalog search: ' + getExampleSearchUrl();
+      // Mostra solo l'URL del manifest, non concatenato con l'esempio
+      document.getElementById('manifestUrlInput').value = url;
+      // Mostra l'esempio del catalog search in un campo separato
+      document.getElementById('catalogExample').textContent = getExampleSearchUrl();
     }
     async function copyManifest() {
       const url = document.getElementById('manifestUrl').getAttribute('data-url');
@@ -335,6 +342,9 @@ app.get('/', (req, res) => {
           <button class="btn secondary" type="button" onclick="installInStremio()">Installa in Stremio</button>
         </div>
         <input id="manifestUrlInput" type="text" class="muted" readonly style="margin-top:10px; width:100%;" />
+        <div class="hint" style="margin-top:8px;">
+          <strong>Esempio catalog search:</strong> <code id="catalogExample"></code>
+        </div>
       </div>
     </div>
 
