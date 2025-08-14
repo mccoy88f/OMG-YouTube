@@ -1015,9 +1015,10 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="important-note">
-                <h4>⚠️ IMPORTANTE: URL Manifest Dinamico</h4>
-                <p>L'URL del manifest ora include i parametri di configurazione per generare dinamicamente il contenuto senza cache.</p>
-                <p>Stremio riconoscerà questo come un URL valido e il server genererà il contenuto necessario in base alla richiesta.</p>
+                <h4>⚠️ IMPORTANTE: Sistema URL Configurazione Base64</h4>
+                <p>Questo addon usa un sistema di configurazione codificato in base64 per la condivisione.</p>
+                <p><strong>Per condividere:</strong> Genera l'URL di configurazione codificato</p>
+                <p><strong>Per installare:</strong> Usa l'URL del manifest generato dinamicamente</p>
             </div>
 
             <form id="configForm">
@@ -1033,7 +1034,6 @@ app.get('/', (req, res) => {
                 
                 <div class="form-group">
                     <button type="submit" class="btn btn-success">💾 Salva Configurazione</button>
-                    <button type="button" class="btn btn-secondary" onclick="generateConfigUrl()">🔗 Genera URL Configurazione</button>
                 </div>
             </form>
             
@@ -1046,15 +1046,9 @@ app.get('/', (req, res) => {
             </div>
             
             <div class="url-display">
-                <h4>🔗 URL Configurazione (NON per Stremio)</h4>
-                <div class="url" id="configUrl">${baseUrl}/</div>
-                <button class="copy-btn" onclick="copyConfigUrl()">Copia</button>
-            </div>
-            
-            <div class="url-display">
-                <h4>🔐 URL Configurazione Codificato (base64)</h4>
+                <h4>🔐 URL Configurazione Base64 (per condivisione)</h4>
                 <div class="url" id="encodedConfigUrl">Genera configurazione per vedere l'URL</div>
-                <button class="copy-btn" onclick="copyEncodedConfigUrl()">Copia</button>
+                <button class="copy-btn" onclick="copyEncodedConfigUrl()">Genera & Copia</button>
             </div>
             
             <div class="url-display">
@@ -1196,10 +1190,6 @@ app.get('/', (req, res) => {
             copyToClipboard(document.getElementById('manifestUrl').textContent);
         }
 
-        function copyConfigUrl() {
-            copyToClipboard(document.getElementById('configUrl').textContent);
-        }
-
         function copyEncodedConfigUrl() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const channelsText = document.getElementById('channels').value.trim();
@@ -1226,9 +1216,11 @@ app.get('/', (req, res) => {
                 .then(data => {
                     if (data.success && data.urls.config) {
                         copyToClipboard(data.urls.config);
-                        showStatus('URL di configurazione codificato copiato!', 'success');
+                        showStatus('URL di configurazione codificato copiato! Usalo per condividere la configurazione.', 'success');
                         // Aggiorna anche la visualizzazione
                         document.getElementById('encodedConfigUrl').textContent = data.urls.config;
+                        // Aggiorna anche l'URL del manifest
+                        updateManifestUrl();
                     } else {
                         showStatus('Errore nella generazione dell\'URL codificato', 'error');
                     }
@@ -1241,31 +1233,6 @@ app.get('/', (req, res) => {
 
         function copyProxyUrl() {
             copyToClipboard(document.getElementById('proxyUrl').textContent);
-        }
-
-        // Genera URL di configurazione
-        function generateConfigUrl() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const channelsText = document.getElementById('channels').value.trim();
-            
-            if (!apiKey) {
-                showStatus('Inserisci prima l\'API Key', 'error');
-                return;
-            }
-            
-            const channels = channelsText.split('\\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0);
-            
-            const params = new URLSearchParams();
-            params.set('apiKey', apiKey);
-            if (channels.length > 0) {
-                params.set('channels', channels.join('\\n'));
-            }
-            
-            const configUrl = \`\${window.location.origin}/?\${params.toString()}\`;
-            document.getElementById('configUrl').textContent = configUrl;
-            showStatus('URL di configurazione generato!', 'success');
         }
 
         // Installa in Stremio
