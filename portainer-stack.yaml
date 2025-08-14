@@ -1,11 +1,10 @@
 version: "3.8"
 
+# Usa questo stack nel Web editor di Portainer (Nessun build). Richiede un'immagine pre-pubblicata.
+# Suggerito: pubblica su Docker Hub o GHCR e aggiorna la riga 'image:' qui sotto.
 services:
   omg-youtube:
-    image: mccoy88f/omg-youtube:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/mccoy88f/omg-youtube:latest
     container_name: omg-youtube
     restart: unless-stopped
     environment:
