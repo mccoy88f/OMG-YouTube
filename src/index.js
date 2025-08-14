@@ -21,6 +21,15 @@ function buildManifest() {
 	const channels = config.channels || [];
 	const channelNames = channels.map((c) => c.name).filter(Boolean);
 
+	// Costruisci URL di configurazione per Stremio
+	const configParams = new URLSearchParams();
+	if (config.apiKey) configParams.set('apiKey', config.apiKey);
+	if (channels.length > 0) {
+		const channelsData = channels.map(c => `${c.name || ''}\t${c.url || ''}`).join('\n');
+		configParams.set('channels', channelsData);
+	}
+	const configUrl = configParams.toString() ? `/?${configParams.toString()}` : '';
+
 	return {
 		id: 'omg-youtube',
 		version: '1.0.0',
@@ -31,6 +40,8 @@ function buildManifest() {
 		idPrefixes: ['yt_'],
 		resources: ['catalog', 'stream'],
 		types: ['movie', 'channel'],
+		// Aggiungi URL di configurazione per Stremio
+		configuration: configUrl ? `http://${process.env.PUBLIC_HOST || 'localhost:3100'}${configUrl}` : undefined,
 		catalogs: [
 			{
 				type: 'movie',
@@ -230,13 +241,18 @@ app.get('/', (req, res) => {
   </style>
   <script>
     async function loadConfig() {
-      const res = await fetch('/api/config');
-      const data = await res.json();
+      // Prima applica i dati dall'URL (se presenti)
       try { applyConfigFromUrl(); } catch {}
-      if (!document.getElementById('apiKey').value) document.getElementById('apiKey').value = data.apiKey || '';
-      if (!document.getElementById('channels').value) {
-        const lines = (data.channels || []).map(c => (c.name || '') + '\\t' + (c.url || ''));
-        document.getElementById('channels').value = lines.join('\\n');
+      
+      // Poi carica dal server solo se non ci sono dati nell'URL
+      if (!document.getElementById('apiKey').value || !document.getElementById('channels').value) {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        if (!document.getElementById('apiKey').value) document.getElementById('apiKey').value = data.apiKey || '';
+        if (!document.getElementById('channels').value) {
+          const lines = (data.channels || []).map(c => (c.name || '') + '\\t' + (c.url || ''));
+          document.getElementById('channels').value = lines.join('\\n');
+        }
       }
       refreshManifestUi();
     }
@@ -250,12 +266,14 @@ app.get('/', (req, res) => {
         if (parts.length === 1) return { name: '', url: parts[0] };
         return null;
       }).filter(c => c && c.url) : [];
+      
+      // Salva sul server per persistenza
       const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, channels }) });
       const data = await res.json();
+      
       const out = document.getElementById('status');
-      // Controlla se la risposta contiene apiKey o channels (successo) o è un errore
       if (data && (data.apiKey !== undefined || data.channels !== undefined)) {
-        out.textContent = 'Salvato.';
+        out.textContent = 'Salvato e manifest aggiornato.';
         out.className = 'ok';
         // Ricarica i campi dalla risposta
         if (typeof data.apiKey === 'string') document.getElementById('apiKey').value = data.apiKey;
@@ -267,7 +285,9 @@ app.get('/', (req, res) => {
         out.textContent = 'Errore nel salvataggio';
         out.className = 'err';
       }
-      setTimeout(()=>{ out.textContent=''; out.className=''; }, 2500);
+      setTimeout(()=>{ out.textContent=''; out.className=''; }, 3000);
+      
+      // Aggiorna il manifest con i nuovi dati
       refreshManifestUi();
     }
     function getOrigin() { return window.location.origin; }
@@ -282,6 +302,19 @@ app.get('/', (req, res) => {
       document.getElementById('manifestUrlInput').value = url;
       // Mostra l'esempio del catalog search in un campo separato
       document.getElementById('catalogExample').textContent = getExampleSearchUrl();
+      
+      // Aggiorna anche l'URL di configurazione per Stremio
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const channelsRaw = document.getElementById('channels').value.trim();
+      if (apiKey || channelsRaw) {
+        const params = new URLSearchParams();
+        if (apiKey) params.set('apiKey', apiKey);
+        if (channelsRaw) params.set('channels', channelsRaw);
+        const configUrl = getOrigin() + '/?' + params.toString();
+        document.getElementById('stremioConfigUrl').textContent = configUrl;
+      } else {
+        document.getElementById('stremioConfigUrl').textContent = 'Nessuna configurazione';
+      }
     }
     async function copyManifest() {
       const url = document.getElementById('manifestUrl').getAttribute('data-url');
@@ -344,6 +377,9 @@ app.get('/', (req, res) => {
         <input id="manifestUrlInput" type="text" class="muted" readonly style="margin-top:10px; width:100%;" />
         <div class="hint" style="margin-top:8px;">
           <strong>Esempio catalog search:</strong> <code id="catalogExample"></code>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+          <strong>URL configurazione per Stremio:</strong> <code id="stremioConfigUrl"></code>
         </div>
       </div>
     </div>
