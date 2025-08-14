@@ -492,6 +492,314 @@ app.post('/api/config', async (req, res) => {
     res.json(conf);
 });
 
+// Endpoint per configurazione tramite URL codificato
+app.get('/configure', (req, res) => {
+    try {
+        // Estrai i parametri dalla query string
+        const { apiKey, channels } = req.query;
+        
+        if (!apiKey) {
+            return res.status(400).json({ error: 'API Key richiesta' });
+        }
+        
+        // Costruisci la configurazione
+        const config = {
+            apiKey: apiKey,
+            channels: channels ? channels.split('\n').map(url => url.trim()).filter(url => url.length > 0).map(url => ({ 
+                url, 
+                name: extractChannelNameFromUrl(url) 
+            })) : []
+        };
+        
+        // Genera l'URL di configurazione codificato
+        const configParams = new URLSearchParams();
+        configParams.set('apiKey', config.apiKey);
+        if (config.channels.length > 0) {
+            const channelsData = config.channels.map(ch => ch.url).join('\n');
+            configParams.set('channels', channelsData);
+        }
+        
+        const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+        const configUrl = `${baseUrl}/configure?${configParams.toString()}`;
+        
+        // Codifica l'URL in base64
+        const encodedConfig = Buffer.from(configUrl).toString('base64');
+        const finalConfigUrl = `${baseUrl}/${encodedConfig}/configure`;
+        
+        // Genera anche l'URL del manifest con i parametri
+        const manifestParams = new URLSearchParams();
+        manifestParams.set('apiKey', config.apiKey);
+        if (config.channels.length > 0) {
+            const channelsData = config.channels.map(ch => ch.url).join('\n');
+            manifestParams.set('channels', channelsData);
+        }
+        
+        const manifestUrl = `${baseUrl}/manifest.json?${manifestParams.toString()}`;
+        
+        res.json({
+            success: true,
+            config: config,
+            urls: {
+                config: finalConfigUrl,
+                manifest: manifestUrl,
+                base64: encodedConfig
+            }
+        });
+        
+    } catch (error) {
+        console.error('Configure error:', error.message);
+        res.status(500).json({ error: 'Errore nella generazione della configurazione' });
+    }
+});
+
+// Endpoint per configurazione tramite URL codificato in base64
+app.get('/:encodedConfig/configure', (req, res) => {
+    try {
+        const { encodedConfig } = req.params;
+        
+        // Decodifica l'URL di configurazione
+        const decodedUrl = Buffer.from(encodedConfig, 'base64').toString('utf-8');
+        const urlObj = new URL(decodedUrl);
+        
+        // Estrai i parametri
+        const apiKey = urlObj.searchParams.get('apiKey');
+        const channelsParam = urlObj.searchParams.get('channels');
+        
+        if (!apiKey) {
+            return res.status(400).json({ error: 'API Key non valida' });
+        }
+        
+        // Costruisci la configurazione
+        const config = {
+            apiKey: apiKey,
+            channels: channelsParam ? channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0).map(url => ({ 
+                url, 
+                name: extractChannelNameFromUrl(url) 
+            })) : []
+        };
+        
+        // Genera l'URL del manifest con i parametri
+        const manifestParams = new URLSearchParams();
+        manifestParams.set('apiKey', config.apiKey);
+        if (config.channels.length > 0) {
+            const channelsData = config.channels.map(ch => ch.url).join('\n');
+            manifestParams.set('channels', channelsData);
+        }
+        
+        const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+        const manifestUrl = `${baseUrl}/manifest.json?${manifestParams.toString()}`;
+        
+        // Restituisci la pagina di configurazione con i parametri pre-compilati
+        res.send(`
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMG YouTube - Configurazione</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        .content {
+            padding: 30px;
+        }
+        .url-display {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: monospace;
+            word-break: break-all;
+            position: relative;
+        }
+        .url-display h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .url-display .url {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            margin: 5px 0;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .copy-btn:hover {
+            background: #5a6268;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin: 10px 5px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .info-box h3 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+        }
+        .info-box p {
+            margin: 5px 0;
+            color: #1565c0;
+        }
+        .config-summary {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .config-summary h3 {
+            margin: 0 0 10px 0;
+            color: #155724;
+        }
+        .config-summary p {
+            margin: 5px 0;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 OMG YouTube</h1>
+            <p>Configurazione Addon Stremio</p>
+        </div>
+        
+        <div class="content">
+            <div class="info-box">
+                <h3>🚀 Configurazione Caricata</h3>
+                <p>La configurazione è stata caricata dall'URL di configurazione.</p>
+                <p>Usa l'URL del manifest per installare l'addon in Stremio.</p>
+            </div>
+
+            <div class="config-summary">
+                <h3>📋 Riepilogo Configurazione</h3>
+                <p><strong>API Key:</strong> ${config.apiKey ? '✅ Configurata' : '❌ Non configurata'}</p>
+                <p><strong>Canali:</strong> ${config.channels.length} canali configurati</p>
+                ${config.channels.length > 0 ? '<p><strong>Canali:</strong></p><ul>' + config.channels.map(ch => `<li>${ch.name || ch.url}</li>`).join('') + '</ul>' : ''}
+            </div>
+            
+            <div class="url-display">
+                <h4>📋 URL Manifest (per Stremio)</h4>
+                <div class="url" id="manifestUrl">${manifestUrl}</div>
+                <button class="copy-btn" onclick="copyManifest()">Copia</button>
+            </div>
+            
+            <div class="url-display">
+                <h4>🔗 URL Configurazione (per condivisione)</h4>
+                <div class="url" id="configUrl">${req.originalUrl}</div>
+                <button class="copy-btn" onclick="copyConfigUrl()">Copia</button>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn btn-success" onclick="installInStremio()">📱 Installa in Stremio</button>
+                <button class="btn" onclick="window.open('${baseUrl}/', '_blank')">⚙️ Modifica Configurazione</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Copia URL nel clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('URL copiato nel clipboard!');
+            }).catch(() => {
+                alert('Errore nella copia dell\'URL');
+            });
+        }
+
+        // Funzioni per i pulsanti copia
+        function copyManifest() {
+            copyToClipboard(document.getElementById('manifestUrl').textContent);
+        }
+
+        function copyConfigUrl() {
+            copyToClipboard(document.getElementById('configUrl').textContent);
+        }
+
+        // Installa in Stremio
+        function installInStremio() {
+            const manifestUrl = document.getElementById('manifestUrl').textContent;
+            const stremioUrl = \`stremio://\${window.location.host}/manifest.json\`;
+            window.open(stremioUrl, '_blank');
+            alert('Apertura Stremio...');
+        }
+    </script>
+</body>
+</html>
+        `);
+        
+    } catch (error) {
+        console.error('Encoded config error:', error.message);
+        res.status(500).json({ error: 'Errore nella decodifica della configurazione' });
+    }
+});
+
 // Admin UI
 app.get('/', (req, res) => {
     const config = loadConfig();
@@ -744,6 +1052,12 @@ app.get('/', (req, res) => {
             </div>
             
             <div class="url-display">
+                <h4>🔐 URL Configurazione Codificato (base64)</h4>
+                <div class="url" id="encodedConfigUrl">Genera configurazione per vedere l'URL</div>
+                <button class="copy-btn" onclick="copyEncodedConfigUrl()">Copia</button>
+            </div>
+            
+            <div class="url-display">
                 <h4>🎬 Esempio Endpoint Proxy</h4>
                 <div class="url" id="proxyUrl">${baseUrl}/proxy/movie/yt_VIDEO_ID</div>
                 <button class="copy-btn" onclick="copyProxyUrl()">Copia</button>
@@ -884,6 +1198,45 @@ app.get('/', (req, res) => {
 
         function copyConfigUrl() {
             copyToClipboard(document.getElementById('configUrl').textContent);
+        }
+
+        function copyEncodedConfigUrl() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const channelsText = document.getElementById('channels').value.trim();
+            
+            if (!apiKey) {
+                showStatus('Inserisci prima l\'API Key', 'error');
+                return;
+            }
+            
+            const baseUrl = window.location.origin;
+            const configParams = new URLSearchParams();
+            configParams.set('apiKey', apiKey);
+            
+            if (channelsText) {
+                const channels = channelsText.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
+                configParams.set('channels', channels.join('\\n'));
+            }
+            
+            const configUrl = \`\${baseUrl}/configure?\${configParams.toString()}\`;
+            
+            // Genera l'URL codificato
+            fetch(configUrl)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.urls.config) {
+                        copyToClipboard(data.urls.config);
+                        showStatus('URL di configurazione codificato copiato!', 'success');
+                        // Aggiorna anche la visualizzazione
+                        document.getElementById('encodedConfigUrl').textContent = data.urls.config;
+                    } else {
+                        showStatus('Errore nella generazione dell\'URL codificato', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Errore:', error);
+                    showStatus('Errore nella generazione dell\'URL codificato', 'error');
+                });
         }
 
         function copyProxyUrl() {
