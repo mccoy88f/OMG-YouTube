@@ -198,8 +198,8 @@ app.post('/api/config', async (req, res) => {
 
 // Simple frontend
 app.get('/', (req, res) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    const manifestUrl = `${req.protocol}://${req.get('host')}/manifest.json`;
+	res.setHeader('Content-Type', 'text/html; charset=utf-8');
+	const manifestUrl = `${req.protocol}://${req.get('host')}/manifest.json`;
 	res.end(`<!doctype html>
 <html lang="it">
 <head>
@@ -235,8 +235,8 @@ app.get('/', (req, res) => {
       try { applyConfigFromUrl(); } catch {}
       if (!document.getElementById('apiKey').value) document.getElementById('apiKey').value = data.apiKey || '';
       if (!document.getElementById('channels').value) {
-        const lines = (data.channels || []).map(c => (c.name || '') + '\t' + (c.url || ''));
-        document.getElementById('channels').value = lines.join('\n');
+        const lines = (data.channels || []).map(c => (c.name || '') + '\\t' + (c.url || ''));
+        document.getElementById('channels').value = lines.join('\\n');
       }
       refreshManifestUi();
     }
@@ -244,8 +244,8 @@ app.get('/', (req, res) => {
       e.preventDefault();
       const apiKey = document.getElementById('apiKey').value.trim();
       const raw = document.getElementById('channels').value.trim();
-      const channels = raw ? raw.split(/\n+/).map(line => {
-        const parts = line.split(/\t|\s{2,}/).map(s => s.trim()).filter(Boolean);
+      const channels = raw ? raw.split(/\\n+/).map(line => {
+        const parts = line.split(/\\t|\\s{2,}/).map(s => s.trim()).filter(Boolean);
         if (parts.length >= 2) return { name: parts[0], url: parts[1] };
         if (parts.length === 1) return { name: '', url: parts[0] };
         return null;
@@ -260,8 +260,8 @@ app.get('/', (req, res) => {
       if (data && (data.apiKey || data.channels)) {
         if (typeof data.apiKey === 'string') document.getElementById('apiKey').value = data.apiKey;
         if (Array.isArray(data.channels)) {
-          const lines = data.channels.map(c => (c.name ? (c.name + '\t' + (c.url||'')) : (c.url||'')));
-          document.getElementById('channels').value = lines.join('\n');
+          const lines = data.channels.map(c => (c.name ? (c.name + '\\t' + (c.url||'')) : (c.url||'')));
+          document.getElementById('channels').value = lines.join('\\n');
         }
       }
       refreshManifestUi();
@@ -274,7 +274,7 @@ app.get('/', (req, res) => {
       const url = getManifestUrl();
       document.getElementById('manifestUrl').textContent = url;
       document.getElementById('manifestUrl').setAttribute('data-url', url);
-      document.getElementById('manifestUrlInput').value = url + '\nEsempio catalog search: ' + getExampleSearchUrl();
+      document.getElementById('manifestUrlInput').value = url + '\\nEsempio catalog search: ' + getExampleSearchUrl();
     }
     async function copyManifest() {
       const url = document.getElementById('manifestUrl').getAttribute('data-url');
@@ -301,7 +301,7 @@ app.get('/', (req, res) => {
       if (apiKey) params.set('apiKey', apiKey);
       if (channelsRaw) {
         if (base64) params.set('channels_b64', btoa(unescape(encodeURIComponent(channelsRaw))));
-        else params.set('channels', channelsRaw.replace(/\n/g, '\\n'));
+        else params.set('channels', channelsRaw.replace(/\\n/g, '\\\\n'));
       }
       const url = base + '/?' + params.toString();
       document.getElementById('configUrl').value = url;
@@ -314,7 +314,7 @@ app.get('/', (req, res) => {
       const channelsPlain = qs.get('channels');
       if (apiKey) document.getElementById('apiKey').value = apiKey;
       if (channelsB64) { try { const decoded = decodeURIComponent(escape(atob(channelsB64))); document.getElementById('channels').value = decoded; } catch {} }
-      else if (channelsPlain) { document.getElementById('channels').value = channelsPlain.replace(/\\n/g, '\n'); }
+      else if (channelsPlain) { document.getElementById('channels').value = channelsPlain.replace(/\\\\n/g, '\\n'); }
     }
     window.addEventListener('DOMContentLoaded', () => { loadConfig(); });
   </script>
@@ -345,8 +345,8 @@ app.get('/', (req, res) => {
       </div>
       <div class="row">
         <label for="channels">Canali seguiti (una riga per canale: NOME[tab o 2+ spazi]URL)</label>
-        <textarea id="channels" placeholder="Nome Canale\thttps://www.youtube.com/@canale"></textarea>
-        <div class="hint">Esempio: <code>Fireship\thttps://www.youtube.com/@Fireship</code></div>
+        <textarea id="channels" placeholder="Nome Canale\\thttps://www.youtube.com/@canale"></textarea>
+        <div class="hint">Esempio: <code>Fireship\\thttps://www.youtube.com/@Fireship</code></div>
       </div>
       <div class="actions">
         <button class="btn" type="submit">Salva</button>
