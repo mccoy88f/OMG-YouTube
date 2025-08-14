@@ -17,64 +17,204 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 function buildManifest() {
-	const config = loadConfig();
-	const channelNames = config.channels && config.channels.length > 0 
-		? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
-		: [];
-	
-	const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
-	
-	return {
-		id: 'com.omg.youtube',
-		name: 'OMG YouTube',
-		description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
-		version: '1.0.0',
-		logo: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
-		background: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
-		contactEmail: 'admin@omg-youtube.com',
-		catalogs: [
-			{
-				type: 'movie',
-				id: 'omg-youtube-search',
-				name: 'Ricerca YouTube',
-				extra: [
-					{ name: 'search', isRequired: true, options: [''] }
-				]
-			},
-			{
-				type: 'channel',
-				id: 'omg-youtube-followed',
-				name: 'Canali Seguiti',
-				extra: [
-					{ name: 'genre', isRequired: false, options: channelNames }
-				]
-			}
-		],
-		resources: [
-			'catalog',
-			'stream',
-			'meta'
-		],
-		types: ['movie', 'channel'],
-		idPrefixes: ['yt'],
-		// Aggiungi URL di configurazione con parametri
-		configuration: `${baseUrl}/?apiKey=${encodeURIComponent(config.apiKey || '')}&channels=${encodeURIComponent(config.channels ? config.channels.map(ch => ch.url).join('\n') : '')}`,
-		// Aggiungi endpoint proxy per streaming
-		proxy: `${baseUrl}/proxy`
-	};
+    const config = loadConfig();
+    const channelNames = config.channels && config.channels.length > 0 
+        ? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
+        : [];
+    
+    const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+    
+    // Costruisci URL di configurazione per Stremio con parametri
+    const configParams = new URLSearchParams();
+    if (config.apiKey) configParams.set('apiKey', config.apiKey);
+    if (config.channels && config.channels.length > 0) {
+        const channelsData = config.channels.map(ch => ch.url).join('\n');
+        configParams.set('channels', channelsData);
+    }
+    
+    // URL del manifest con parametri di configurazione
+    const manifestUrl = configParams.toString() ? 
+        `${baseUrl}/manifest.json?${configParams.toString()}` : 
+        `${baseUrl}/manifest.json`;
+    
+    return {
+        id: 'com.omg.youtube',
+        name: 'OMG YouTube',
+        description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
+        version: '1.0.0',
+        logo: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+        background: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+        contactEmail: 'admin@omg-youtube.com',
+        catalogs: [
+            {
+                type: 'movie',
+                id: 'omg-youtube-search',
+                name: 'Ricerca YouTube',
+                extra: [
+                    { name: 'search', isRequired: true, options: [''] }
+                ]
+            },
+            {
+                type: 'channel',
+                id: 'omg-youtube-followed',
+                name: 'Canali Seguiti',
+                extra: [
+                    { name: 'genre', isRequired: false, options: channelNames }
+                ]
+            }
+        ],
+        resources: [
+            'catalog',
+            'stream',
+            'meta'
+        ],
+        types: ['movie', 'channel'],
+        idPrefixes: ['yt'],
+        // URL di configurazione per Stremio (senza parametri)
+        configuration: `${baseUrl}/`,
+        // Endpoint proxy per streaming
+        proxy: `${baseUrl}/proxy`
+    };
 }
 
 // Manifest
-app.get(['/manifest.json', '/manifest'], (req, res) => {
-	res.setHeader('Cache-Control', 'no-cache');
-	res.json(buildManifest());
+app.get('/manifest.json', (req, res) => {
+    try {
+        // Leggi i parametri di configurazione dall'URL
+        const apiKey = req.query.apiKey;
+        const channelsParam = req.query.channels;
+        
+        // Costruisci configurazione temporanea dai parametri URL
+        let tempConfig = { apiKey: '', channels: [] };
+        
+        if (apiKey) {
+            tempConfig.apiKey = apiKey;
+        }
+        
+        if (channelsParam) {
+            const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+            tempConfig.channels = channelUrls.map(url => ({ 
+                url, 
+                name: extractChannelNameFromUrl(url) 
+            }));
+        }
+        
+        // Genera manifest dinamico con la configurazione temporanea
+        const manifest = buildManifestFromConfig(tempConfig);
+        
+        res.json(manifest);
+    } catch (error) {
+        console.error('Manifest error:', error.message);
+        // Fallback al manifest base se ci sono errori
+        res.json(buildManifestFromConfig({}));
+    }
 });
+
+// Funzione per estrarre il nome del canale dall'URL
+function extractChannelNameFromUrl(url) {
+    try {
+        const urlObj = new URL(url);
+        if (urlObj.pathname.includes('@')) {
+            return '@' + urlObj.pathname.split('@')[1];
+        } else if (urlObj.pathname.includes('/channel/')) {
+            return 'Channel ' + urlObj.pathname.split('/channel/')[1];
+        } else if (urlObj.pathname.includes('/c/')) {
+            return 'Custom ' + urlObj.pathname.split('/c/')[1];
+        } else {
+            return urlObj.hostname;
+        }
+    } catch (error) {
+        return url;
+    }
+}
+
+// Funzione per generare manifest da configurazione specifica
+function buildManifestFromConfig(config) {
+    const channelNames = config.channels && config.channels.length > 0 
+        ? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
+        : [];
+    
+    const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+    
+    return {
+        id: 'com.omg.youtube',
+        name: 'OMG YouTube',
+        description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
+        version: '1.0.0',
+        logo: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+        background: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+        contactEmail: 'admin@omg-youtube.com',
+        catalogs: [
+            {
+                type: 'movie',
+                id: 'omg-youtube-search',
+                name: 'Ricerca YouTube',
+                extra: [
+                    { name: 'search', isRequired: true, options: [''] }
+                ]
+            },
+            {
+                type: 'channel',
+                id: 'omg-youtube-followed',
+                name: 'Canali Seguiti',
+                extra: [
+                    { name: 'genre', isRequired: false, options: channelNames }
+                ]
+            }
+        ],
+        resources: [
+            'catalog',
+            'stream',
+            'meta'
+        ],
+        types: ['movie', 'channel'],
+        idPrefixes: ['yt'],
+        // URL di configurazione per Stremio (senza parametri)
+        configuration: `${baseUrl}/`,
+        // Endpoint proxy per streaming
+        proxy: `${baseUrl}/proxy`
+    };
+}
+
+// Funzione originale buildManifest per compatibilità
+function buildManifest() {
+    const config = loadConfig();
+    return buildManifestFromConfig(config);
+}
 
 // Catalog endpoint
 app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     try {
         const { type, id, extra } = req.params;
-        const config = loadConfig();
+        
+        // Leggi i parametri di configurazione dall'URL del manifest
+        const manifestUrl = req.get('Referer') || req.headers.referer || '';
+        let config = { apiKey: '', channels: [] };
+        
+        try {
+            // Estrai parametri dall'URL del manifest
+            if (manifestUrl.includes('manifest.json')) {
+                const urlObj = new URL(manifestUrl);
+                const apiKey = urlObj.searchParams.get('apiKey');
+                const channelsParam = urlObj.searchParams.get('channels');
+                
+                if (apiKey) {
+                    config.apiKey = apiKey;
+                }
+                
+                if (channelsParam) {
+                    const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+                    config.channels = channelUrls.map(url => ({ 
+                        url, 
+                        name: extractChannelNameFromUrl(url) 
+                    }));
+                }
+            }
+        } catch (error) {
+            console.log('Fallback to server config for catalog');
+            // Fallback alla configurazione del server se non riesci a leggere dall'URL
+            config = loadConfig();
+        }
         
         if (type === 'movie' && id === 'omg-youtube-search') {
             // Ricerca video YouTube
@@ -352,10 +492,22 @@ app.post('/api/config', async (req, res) => {
     res.json(conf);
 });
 
-// Simple frontend
+// Admin UI
 app.get('/', (req, res) => {
     const config = loadConfig();
     const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+    
+    // Genera URL del manifest con parametri di configurazione
+    const manifestParams = new URLSearchParams();
+    if (config.apiKey) manifestParams.set('apiKey', config.apiKey);
+    if (config.channels && config.channels.length > 0) {
+        const channelsData = config.channels.map(ch => ch.url).join('\n');
+        manifestParams.set('channels', channelsData);
+    }
+    
+    const manifestUrl = manifestParams.toString() ? 
+        `${baseUrl}/manifest.json?${manifestParams.toString()}` : 
+        `${baseUrl}/manifest.json`;
     
     res.send(`
 <!DOCTYPE html>
@@ -521,6 +673,21 @@ app.get('/', (req, res) => {
             margin: 5px 0;
             color: #1565c0;
         }
+        .important-note {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .important-note h4 {
+            margin: 0 0 10px 0;
+            color: #856404;
+        }
+        .important-note p {
+            margin: 5px 0;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
@@ -537,6 +704,12 @@ app.get('/', (req, res) => {
                 <p>• Endpoint proxy: <code>${baseUrl}/proxy</code></p>
                 <p>• Streaming in tempo reale senza download</p>
                 <p>• Compatibile con tutti i formati YouTube</p>
+            </div>
+
+            <div class="important-note">
+                <h4>⚠️ IMPORTANTE: URL Manifest Dinamico</h4>
+                <p>L'URL del manifest ora include i parametri di configurazione per generare dinamicamente il contenuto senza cache.</p>
+                <p>Stremio riconoscerà questo come un URL valido e il server genererà il contenuto necessario in base alla richiesta.</p>
             </div>
 
             <form id="configForm">
@@ -559,8 +732,8 @@ app.get('/', (req, res) => {
             <div id="status"></div>
             
             <div class="url-display">
-                <h4>📋 URL Manifest (per Stremio)</h4>
-                <div class="url" id="manifestUrl">${baseUrl}/manifest.json</div>
+                <h4>📋 URL Manifest (per Stremio) - DINAMICO</h4>
+                <div class="url" id="manifestUrl">${manifestUrl}</div>
                 <button class="copy-btn" onclick="copyManifest()">Copia</button>
             </div>
             
@@ -596,10 +769,31 @@ app.get('/', (req, res) => {
                     const config = await response.json();
                     document.getElementById('apiKey').value = config.apiKey || '';
                     document.getElementById('channels').value = config.channels ? config.channels.map(ch => ch.url).join('\\n') : '';
+                    // Aggiorna l'URL del manifest con i nuovi parametri
+                    updateManifestUrl();
                 }
             } catch (error) {
                 console.error('Errore nel caricamento della configurazione:', error);
             }
+        }
+
+        // Aggiorna l'URL del manifest con i parametri correnti
+        function updateManifestUrl() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const channelsText = document.getElementById('channels').value.trim();
+            
+            const params = new URLSearchParams();
+            if (apiKey) params.set('apiKey', apiKey);
+            if (channelsText) {
+                const channels = channelsText.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
+                params.set('channels', channels.join('\\n'));
+            }
+            
+            const manifestUrl = params.toString() ? 
+                \`\${window.location.origin}/manifest.json?\${params.toString()}\` : 
+                \`\${window.location.origin}/manifest.json\`;
+            
+            document.getElementById('manifestUrl').textContent = manifestUrl;
         }
 
         // Salva la configurazione
@@ -633,8 +827,8 @@ app.get('/', (req, res) => {
                         // Ricarica i campi per mostrare i dati salvati
                         document.getElementById('apiKey').value = result.apiKey || '';
                         document.getElementById('channels').value = result.channels ? result.channels.map(ch => ch.url).join('\\n') : '';
-                        // Aggiorna l'UI del manifest
-                        refreshManifestUi();
+                        // Aggiorna l'URL del manifest
+                        updateManifestUrl();
                     } else {
                         showStatus('Errore nel salvataggio della configurazione', 'error');
                     }
@@ -672,14 +866,6 @@ app.get('/', (req, res) => {
             setTimeout(() => {
                 statusDiv.innerHTML = '';
             }, 5000);
-        }
-
-        // Aggiorna l'UI del manifest
-        function refreshManifestUi() {
-            const baseUrl = window.location.origin;
-            document.getElementById('manifestUrl').textContent = \`\${baseUrl}/manifest.json\`;
-            document.getElementById('configUrl').textContent = \`\${baseUrl}/\`;
-            document.getElementById('proxyUrl').textContent = \`\${baseUrl}/proxy/movie/yt_VIDEO_ID\`;
         }
 
         // Copia URL nel clipboard
@@ -755,10 +941,17 @@ app.get('/', (req, res) => {
             if (channels) {
                 document.getElementById('channels').value = channels;
             }
+            
+            // Aggiorna l'URL del manifest dopo aver applicato la configurazione
+            updateManifestUrl();
         }
 
         // Applica configurazione all'avvio se presente negli URL
         applyConfigFromUrl();
+        
+        // Aggiorna l'URL del manifest quando cambiano i campi
+        document.getElementById('apiKey').addEventListener('input', updateManifestUrl);
+        document.getElementById('channels').addEventListener('input', updateManifestUrl);
     </script>
 </body>
 </html>
