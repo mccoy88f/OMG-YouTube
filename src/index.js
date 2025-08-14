@@ -5,7 +5,7 @@ const path = require('path');
 
 const { loadConfig, saveConfig, ensureDataDir } = require('./lib/config');
 const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos, fetchChannelTitleAndThumb } = require('./lib/youtube');
-const { getStreamUrlForVideo } = require('./lib/yt');
+const { getStreamUrlForVideo, createVideoStream } = require('./lib/yt.js');
 
 const APP_PORT = process.env.PORT ? Number(process.env.PORT) : 3100;
 
@@ -18,55 +18,50 @@ app.use(morgan('dev'));
 
 function buildManifest() {
 	const config = loadConfig();
-	const channels = config.channels || [];
-	const channelNames = channels.map((c) => c.name).filter(Boolean);
-
-	// Costruisci URL di configurazione per Stremio
-	const configParams = new URLSearchParams();
-	if (config.apiKey) configParams.set('apiKey', config.apiKey);
-	if (channels.length > 0) {
-		const channelsData = channels.map(c => `${c.name || ''}\t${c.url || ''}`).join('\n');
-		configParams.set('channels', channelsData);
-	}
-	const configUrl = configParams.toString() ? `/?${configParams.toString()}` : '';
-
+	const channelNames = config.channels && config.channels.length > 0 
+		? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
+		: [];
+	
+	const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+	
 	return {
-		id: 'omg-youtube',
-		version: '1.0.0',
+		id: 'com.omg.youtube',
 		name: 'OMG YouTube',
-		description: 'Cerca video su YouTube e mostra i canali seguiti. Usa yt-dlp per lo streaming diretto.',
-		logo: 'https://www.youtube.com/s/desktop/99a30123/img/favicon_144x144.png',
-		background: 'https://i.ytimg.com/vi/aqz-KE-bpKQ/maxresdefault.jpg',
-		idPrefixes: ['yt_'],
-		resources: ['catalog', 'stream'],
-		types: ['movie', 'channel'],
-		// Aggiungi URL di configurazione per Stremio
-		configuration: configUrl ? `http://${process.env.PUBLIC_HOST || 'localhost:3100'}${configUrl}` : undefined,
+		description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
+		version: '1.0.0',
+		logo: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+		background: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+		contactEmail: 'admin@omg-youtube.com',
 		catalogs: [
 			{
 				type: 'movie',
 				id: 'omg-youtube-search',
-				name: 'OMG YouTube Search',
-				extra: [{ name: 'search', isRequired: true }]
+				name: 'Ricerca YouTube',
+				extra: [
+					{ name: 'search', isRequired: true, options: [''] }
+				]
 			},
 			{
 				type: 'channel',
 				id: 'omg-youtube-followed',
-				name: 'Canali seguiti',
-				genres: channelNames,
-				extra: [{ name: 'genre', isRequired: false }]
+				name: 'Canali Seguiti',
+				extra: [
+					{ name: 'genre', isRequired: false, options: channelNames }
+				]
 			}
-		]
+		],
+		resources: [
+			'catalog',
+			'stream',
+			'meta'
+		],
+		types: ['movie', 'channel'],
+		idPrefixes: ['yt'],
+		// Aggiungi URL di configurazione con parametri
+		configuration: `${baseUrl}/?apiKey=${encodeURIComponent(config.apiKey || '')}&channels=${encodeURIComponent(config.channels ? config.channels.map(ch => ch.url).join('\n') : '')}`,
+		// Aggiungi endpoint proxy per streaming
+		proxy: `${baseUrl}/proxy`
 	};
-}
-
-function parseExtra(extraRaw) {
-	if (!extraRaw) return {};
-	// extra viene nel formato 'key=value' o 'key=value&k2=v2'
-	const params = new URLSearchParams(extraRaw.replace(/\.json$/i, ''));
-	const out = {};
-	for (const [k, v] of params.entries()) out[k] = v;
-	return out;
 }
 
 // Manifest
@@ -75,162 +70,226 @@ app.get(['/manifest.json', '/manifest'], (req, res) => {
 	res.json(buildManifest());
 });
 
-// Catalog
+// Catalog endpoint
 app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
-	const { type, id } = req.params;
-    const extra = { ...req.query, ...parseExtra(req.params.extra) };
-	const config = loadConfig();
-	const apiKey = config.apiKey;
-	if (!apiKey) {
-		return res.json({ metas: [] });
-	}
-
-	try {
-		if (id === 'omg-youtube-search' && type === 'movie') {
-			const query = (extra.search || '').trim();
-			if (!query) return res.json({ metas: [] });
-			const results = await searchVideos({ apiKey, query, maxResults: 50 });
-			const metas = results.map((r) => ({
-				id: `yt_${r.videoId}`,
-				type: 'movie',
-				name: r.title,
-				description: r.description,
-				poster: r.thumbnail,
-				posterShape: 'landscape',
-				logo: r.channelThumbnail || undefined,
-				background: r.thumbnail,
-				// Aggiungi campi meta completi per Stremio
-				genre: ['YouTube'],
-				releaseInfo: r.publishedAt ? new Date(r.publishedAt).getFullYear().toString() : undefined,
-				director: r.channelTitle,
-				cast: [r.channelTitle],
-				country: 'YouTube',
-				language: 'it',
-				subtitles: [],
-				// Metadati aggiuntivi
-				imdbRating: undefined,
-				rating: undefined,
-				year: r.publishedAt ? new Date(r.publishedAt).getFullYear() : undefined,
-				released: r.publishedAt,
-				// Per la navigazione
-				links: [
-					{
-						name: 'YouTube',
-						category: 'external',
-						url: `https://www.youtube.com/watch?v=${r.videoId}`
-					}
-				]
-			}));
-			return res.json({ metas });
-		}
-
-		if (id === 'omg-youtube-followed' && type === 'channel') {
-			const chosen = (extra.genre || '').trim();
-			if (!chosen) {
-				// Se non è specificato un canale, restituisci la lista dei canali disponibili
-				// Stremio può mostrare questo come "seleziona un canale"
-				const availableChannels = channels.map((c) => ({
-					id: `genre_${c.name}`,
-					type: 'channel',
-					name: c.name,
-					description: `Canale: ${c.url}`,
-					poster: c.channelThumbnail || 'https://www.youtube.com/s/desktop/99a30123/img/favicon_144x144.png',
-					posterShape: 'landscape',
-					genre: ['YouTube'],
-					country: 'YouTube',
-					language: 'it'
-				}));
-				return res.json({ metas: availableChannels });
-			}
-			
-			const channel = channels.find((c) => c.name === chosen);
-			if (!channel) return res.json({ metas: [] });
-			
-			const channelId = channel.channelId || (await getChannelIdFromInput({ apiKey, input: channel.url }));
-			if (!channelId) return res.json({ metas: [] });
-			
-			const videos = await fetchChannelLatestVideos({ apiKey, channelId, maxResults: 50 });
-			const metas = videos.map((r) => ({
-				id: `yt_${r.videoId}`,
-				type: 'channel',
-				name: r.title,
-				description: r.description,
-				poster: r.thumbnail,
-				posterShape: 'landscape',
-				logo: r.channelThumbnail || undefined,
-				background: r.thumbnail,
-				// Aggiungi campi meta completi per Stremio
-				genre: ['YouTube'],
-				releaseInfo: r.publishedAt ? new Date(r.publishedAt).getFullYear().toString() : undefined,
-				director: r.channelTitle,
-				cast: [r.channelTitle],
-				country: 'YouTube',
-				language: 'it',
-				subtitles: [],
-				// Metadati aggiuntivi
-				imdbRating: undefined,
-				rating: undefined,
-				year: r.publishedAt ? new Date(r.publishedAt).getFullYear() : undefined,
-				released: r.publishedAt,
-				// Per la navigazione
-				links: [
-					{
-						name: 'YouTube',
-						category: 'external',
-						url: `https://www.youtube.com/watch?v=${r.videoId}`
-					}
-				]
-			}));
-			return res.json({ metas });
-		}
-
-		return res.json({ metas: [] });
-	} catch (err) {
-		console.error('Catalog error:', err.message);
-		return res.json({ metas: [] });
-	}
+    try {
+        const { type, id, extra } = req.params;
+        const config = loadConfig();
+        
+        if (type === 'movie' && id === 'omg-youtube-search') {
+            // Ricerca video YouTube
+            const searchQuery = extra ? decodeURIComponent(extra) : '';
+            if (!searchQuery) {
+                return res.json({ metas: [] });
+            }
+            
+            console.log(`Search request: ${searchQuery}`);
+            
+            try {
+                const videos = await searchVideos(searchQuery, config.apiKey);
+                const metas = videos.map(video => ({
+                    id: `yt_${video.id}`,
+                    type: 'movie',
+                    name: video.title,
+                    description: video.description,
+                    poster: video.thumbnail,
+                    posterShape: 'landscape',
+                    logo: video.channelThumbnail,
+                    background: video.thumbnail,
+                    genre: ['YouTube'],
+                    releaseInfo: video.publishedAt,
+                    director: video.channelTitle,
+                    cast: [video.channelTitle],
+                    country: 'YouTube',
+                    language: 'it',
+                    subtitles: [],
+                    year: new Date(video.publishedAt).getFullYear(),
+                    released: video.publishedAt,
+                    links: [
+                        {
+                            name: 'YouTube',
+                            category: 'watch',
+                            url: `https://www.youtube.com/watch?v=${video.id}`
+                        }
+                    ]
+                }));
+                
+                res.json({ metas });
+                
+            } catch (error) {
+                console.error('Search error:', error.message);
+                res.json({ metas: [] });
+            }
+            
+        } else if (type === 'channel' && id === 'omg-youtube-followed') {
+            // Canali seguiti
+            const channels = config.channels || [];
+            
+            if (!extra) {
+                // Se non è specificato un canale, restituisci la lista dei canali disponibili
+                // Stremio può mostrare questo come "seleziona un canale"
+                const availableChannels = channels.map((c) => ({
+                    id: `genre_${c.name}`,
+                    type: 'channel',
+                    name: c.name,
+                    description: `Canale: ${c.name}`,
+                    poster: c.thumbnail || 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+                    posterShape: 'square',
+                    logo: c.thumbnail || 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+                    background: c.thumbnail || 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+                    genre: ['YouTube'],
+                    releaseInfo: 'Canale seguito',
+                    director: c.name,
+                    cast: [c.name],
+                    country: 'YouTube',
+                    language: 'it',
+                    subtitles: [],
+                    year: new Date().getFullYear(),
+                    released: new Date().toISOString(),
+                    links: [
+                        {
+                            name: 'YouTube',
+                            category: 'channel',
+                            url: c.url
+                        }
+                    ]
+                }));
+                
+                return res.json({ metas: availableChannels });
+            }
+            
+            // Estrai il nome del canale dall'extra
+            const chosen = decodeURIComponent(extra);
+            console.log(`Channel request for: ${chosen}`);
+            
+            const channel = channels.find((c) => c.name === chosen);
+            if (!channel) return res.json({ metas: [] });
+            
+            try {
+                const videos = await fetchChannelLatestVideos(channel.url, config.apiKey);
+                const metas = videos.map(video => ({
+                    id: `yt_${video.id}`,
+                    type: 'movie',
+                    name: video.title,
+                    description: video.description,
+                    poster: video.thumbnail,
+                    posterShape: 'landscape',
+                    logo: video.channelThumbnail,
+                    background: video.thumbnail,
+                    genre: ['YouTube'],
+                    releaseInfo: video.publishedAt,
+                    director: video.channelTitle,
+                    cast: [video.channelTitle],
+                    country: 'YouTube',
+                    language: 'it',
+                    subtitles: [],
+                    year: new Date(video.publishedAt).getFullYear(),
+                    released: video.publishedAt,
+                    links: [
+                        {
+                            name: 'YouTube',
+                            category: 'watch',
+                            url: `https://www.youtube.com/watch?v=${video.id}`
+                        }
+                    ]
+                }));
+                
+                res.json({ metas });
+                
+            } catch (error) {
+                console.error('Channel videos error:', error.message);
+                res.json({ metas: [] });
+            }
+            
+        } else {
+            res.json({ metas: [] });
+        }
+        
+    } catch (error) {
+        console.error('Catalog error:', error.message);
+        res.status(500).json({ error: 'Errore nel catalogo' });
+    }
 });
 
-// Stream
+// Endpoint per ottenere informazioni sullo stream (per compatibilità)
 app.get('/stream/:type/:id.json', async (req, res) => {
-	const { id } = req.params;
-	// Estrai il video ID correttamente da yt_VIDEOID o VIDEOID
-	let videoId = String(id || '');
-	if (videoId.startsWith('yt_')) {
-		videoId = videoId.substring(3);
-	} else if (videoId.startsWith('genre_')) {
-		// Se è un genere (canale), non è un video
-		return res.json({ streams: [] });
-	}
-	
-	if (!videoId || videoId.length < 10) {
-		console.error('Stream error: Invalid video ID:', id);
-		return res.json({ streams: [] });
-	}
-	
-	try {
-		const url = await getStreamUrlForVideo(videoId);
-		if (!url) {
-			console.error('Stream error: No stream URL found for video:', videoId);
-			return res.json({ streams: [] });
-		}
-		
-		return res.json({
-			streams: [
-				{
-					url,
-					title: 'OMG YouTube',
-					// Aggiungi metadati per lo stream
-					ytId: videoId,
-					quality: 'best',
-					format: 'mp4'
-				}
-			]
-		});
-	} catch (err) {
-		console.error('Stream error:', err.message, 'for video:', videoId);
-		return res.json({ streams: [] });
-	}
+    try {
+        const { type, id } = req.params;
+        
+        // Estrai videoId dall'id (rimuovi prefisso yt_ se presente)
+        let videoId = id;
+        if (id.startsWith('yt_')) {
+            videoId = id.substring(3);
+        }
+        
+        console.log(`Stream request for video: ${videoId}`);
+        
+        const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+        
+        // Restituisci l'URL del proxy invece dell'URL diretto di Google
+        res.json({
+            streams: [{
+                url: `${baseUrl}/proxy/${type}/${id}`,
+                title: 'OMG YouTube',
+                ytId: videoId,
+                quality: 'best',
+                format: 'mp4'
+            }]
+        });
+        
+    } catch (error) {
+        console.error('Stream error:', error.message);
+        res.status(500).json({ error: 'Errore nel recupero dello stream' });
+    }
+});
+
+// Nuovo endpoint per streaming proxy diretto
+app.get('/proxy/:type/:id', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        
+        // Estrai videoId dall'id (rimuovi prefisso yt_ se presente)
+        let videoId = id;
+        if (id.startsWith('yt_')) {
+            videoId = id.substring(3);
+        }
+        
+        console.log(`Proxy stream request for video: ${videoId}`);
+        
+        // Imposta gli header per lo streaming video
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        
+        // Crea lo stream del video
+        const videoStream = await createVideoStream(videoId);
+        
+        // Gestisci gli errori dello stream
+        videoStream.on('error', (error) => {
+            console.error('Video stream error:', error.message);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Errore nello streaming del video' });
+            } else {
+                res.end();
+            }
+        });
+        
+        // Inoltra lo stream alla risposta
+        videoStream.pipe(res);
+        
+        // Gestisci la chiusura della connessione
+        req.on('close', () => {
+            console.log(`Client disconnected for video: ${videoId}`);
+            videoStream.destroy();
+        });
+        
+    } catch (error) {
+        console.error('Proxy stream error:', error.message);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Errore nell\'avvio dello stream' });
+        }
+    }
 });
 
 // Admin API
@@ -295,211 +354,415 @@ app.post('/api/config', async (req, res) => {
 
 // Simple frontend
 app.get('/', (req, res) => {
-	res.setHeader('Content-Type', 'text/html; charset=utf-8');
-	const manifestUrl = `${req.protocol}://${req.get('host')}/manifest.json`;
-	res.end(`<!doctype html>
+    const config = loadConfig();
+    const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+    
+    res.send(`
+<!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OMG YouTube - Admin</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; margin: 0; color: #111; background: #fafafa; }
-    .container { max-width: 860px; margin: 0 auto; padding: 24px; }
-    h1 { margin: 0 0 8px; font-size: 28px; }
-    .sub { color: #555; margin-bottom: 24px; }
-    input, textarea, button { font-size: 16px; }
-    .card { background: #fff; border: 1px solid #eaeaea; border-radius: 12px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); margin-bottom: 16px; }
-    .row { margin-bottom: 16px; }
-    label { display: block; margin-bottom: 6px; font-weight: 600; }
-    input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; }
-    textarea { width: 100%; height: 180px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
-    .hint { color: #666; font-size: 14px; }
-    .ok { color: #0a7; }
-    .err { color: #c00; }
-    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
-    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .btn { appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; background: #111; color: #fff; cursor: pointer; }
-    .btn.secondary { background: #333; }
-    .btn.ghost { background: #fff; color: #111; border: 1px solid #ddd; }
-    .muted { color: #777; }
-  </style>
-  <script>
-    async function loadConfig() {
-      // Prima applica i dati dall'URL (se presenti)
-      try { applyConfigFromUrl(); } catch {}
-      
-      // Poi carica dal server solo se non ci sono dati nell'URL
-      if (!document.getElementById('apiKey').value || !document.getElementById('channels').value) {
-        const res = await fetch('/api/config');
-        const data = await res.json();
-        if (!document.getElementById('apiKey').value) document.getElementById('apiKey').value = data.apiKey || '';
-        if (!document.getElementById('channels').value) {
-          const lines = (data.channels || []).map(c => (c.name || '') + '\\t' + (c.url || ''));
-          document.getElementById('channels').value = lines.join('\\n');
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMG YouTube - Configurazione Addon Stremio</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
         }
-      }
-      refreshManifestUi();
-    }
-    async function saveConfig(e) {
-      e.preventDefault();
-      const apiKey = document.getElementById('apiKey').value.trim();
-      const raw = document.getElementById('channels').value.trim();
-      const channels = raw ? raw.split(/\\n+/).map(line => {
-        const parts = line.split(/\\t|\\s{2,}/).map(s => s.trim()).filter(Boolean);
-        if (parts.length >= 2) return { name: parts[0], url: parts[1] };
-        if (parts.length === 1) return { name: '', url: parts[0] };
-        return null;
-      }).filter(c => c && c.url) : [];
-      
-      // Salva sul server per persistenza
-      const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, channels }) });
-      const data = await res.json();
-      
-      const out = document.getElementById('status');
-      if (data && (data.apiKey !== undefined || data.channels !== undefined)) {
-        out.textContent = 'Salvato e manifest aggiornato.';
-        out.className = 'ok';
-        // Ricarica i campi dalla risposta
-        if (typeof data.apiKey === 'string') document.getElementById('apiKey').value = data.apiKey;
-        if (Array.isArray(data.channels)) {
-          const lines = data.channels.map(c => (c.name ? (c.name + '\\t' + (c.url||'')) : (c.url||'')));
-          document.getElementById('channels').value = lines.join('\\n');
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
         }
-      } else {
-        out.textContent = 'Errore nel salvataggio';
-        out.className = 'err';
-      }
-      setTimeout(()=>{ out.textContent=''; out.className=''; }, 3000);
-      
-      // Aggiorna il manifest con i nuovi dati
-      refreshManifestUi();
-    }
-    function getOrigin() { return window.location.origin; }
-    function getManifestUrl() { return getOrigin() + '/manifest.json'; }
-    // Mostra anche un URL di catalog per test rapidi (search)
-    function getExampleSearchUrl() { return getOrigin() + '/catalog/movie/omg-youtube-search/search=%7Bquery%7D.json'; }
-    function refreshManifestUi() {
-      const url = getManifestUrl();
-      document.getElementById('manifestUrl').textContent = url;
-      document.getElementById('manifestUrl').setAttribute('data-url', url);
-      // Mostra solo l'URL del manifest, non concatenato con l'esempio
-      document.getElementById('manifestUrlInput').value = url;
-      // Mostra l'esempio del catalog search in un campo separato
-      document.getElementById('catalogExample').textContent = getExampleSearchUrl();
-      
-      // Aggiorna anche l'URL di configurazione per Stremio
-      const apiKey = document.getElementById('apiKey').value.trim();
-      const channelsRaw = document.getElementById('channels').value.trim();
-      if (apiKey || channelsRaw) {
-        const params = new URLSearchParams();
-        if (apiKey) params.set('apiKey', apiKey);
-        if (channelsRaw) params.set('channels', channelsRaw);
-        const configUrl = getOrigin() + '/?' + params.toString();
-        document.getElementById('stremioConfigUrl').textContent = configUrl;
-      } else {
-        document.getElementById('stremioConfigUrl').textContent = 'Nessuna configurazione';
-      }
-    }
-    async function copyManifest() {
-      const url = document.getElementById('manifestUrl').getAttribute('data-url');
-      try { await navigator.clipboard.writeText(url); notify('Copiato.'); } catch (e) { fallbackCopy(url); }
-    }
-    function installInStremio() {
-      const url = document.getElementById('manifestUrl').getAttribute('data-url');
-      const stremioProto = 'stremio://'+ encodeURIComponent(url);
-      const webUrl = 'https://web.stremio.com/#/addons/community?addonUrl=' + encodeURIComponent(url);
-      const a = document.createElement('a'); a.href = stremioProto; document.body.appendChild(a); a.click();
-      setTimeout(() => { window.open(webUrl, '_blank'); }, 500);
-    }
-    function fallbackCopy(text) {
-      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); notify('Copiato.');
-    }
-    function notify(msg) {
-      const out = document.getElementById('status'); out.textContent = msg; out.className = 'ok'; setTimeout(()=>{ out.textContent=''; out.className=''; }, 1800);
-    }
-    function generateConfigUrl(base64 = false) {
-      const apiKey = document.getElementById('apiKey').value.trim();
-      const channelsRaw = document.getElementById('channels').value.trim();
-      const base = getOrigin();
-      const params = new URLSearchParams();
-      if (apiKey) params.set('apiKey', apiKey);
-      if (channelsRaw) {
-        if (base64) params.set('channels_b64', btoa(unescape(encodeURIComponent(channelsRaw))));
-        else params.set('channels', channelsRaw.replace(/\\n/g, '\\\\n'));
-      }
-      const url = base + '/?' + params.toString();
-      document.getElementById('configUrl').value = url;
-      return url;
-    }
-    function applyConfigFromUrl() {
-      const qs = new URLSearchParams(window.location.search);
-      const apiKey = qs.get('apiKey');
-      const channelsB64 = qs.get('channels_b64');
-      const channelsPlain = qs.get('channels');
-      if (apiKey) document.getElementById('apiKey').value = apiKey;
-      if (channelsB64) { try { const decoded = decodeURIComponent(escape(atob(channelsB64))); document.getElementById('channels').value = decoded; } catch {} }
-      else if (channelsPlain) { document.getElementById('channels').value = channelsPlain.replace(/\\\\n/g, '\\n'); }
-    }
-    window.addEventListener('DOMContentLoaded', () => { loadConfig(); });
-  </script>
-  </head>
+        .header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        .content {
+            padding: 30px;
+        }
+        .form-group {
+            margin-bottom: 25px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+            font-family: monospace;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+        .url-display {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: monospace;
+            word-break: break-all;
+            position: relative;
+        }
+        .url-display h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .url-display .url {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            margin: 5px 0;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .copy-btn:hover {
+            background: #5a6268;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: 500;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .info-box h3 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+        }
+        .info-box p {
+            margin: 5px 0;
+            color: #1565c0;
+        }
+    </style>
+</head>
 <body>
-  <div class="container">
-    <h1>OMG YouTube</h1>
-    <div class="sub">Addon Stremio per cercare e riprodurre video di YouTube via yt-dlp</div>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 OMG YouTube</h1>
+            <p>Configurazione Addon Stremio con Streaming Diretto</p>
+        </div>
+        
+        <div class="content">
+            <div class="info-box">
+                <h3>🚀 Streaming Diretto Implementato</h3>
+                <p>Questo addon ora usa yt-dlp per streammare video direttamente a Stremio!</p>
+                <p>• Endpoint proxy: <code>${baseUrl}/proxy</code></p>
+                <p>• Streaming in tempo reale senza download</p>
+                <p>• Compatibile con tutti i formati YouTube</p>
+            </div>
 
-    <div class="card">
-      <div class="row">
-        <div><strong>URL manifest (per Stremio)</strong></div>
-        <div class="hint" style="margin: 8px 0;">
-          <code id="manifestUrl" data-url="${manifestUrl}">${manifestUrl}</code>
+            <form id="configForm">
+                <div class="form-group">
+                    <label for="apiKey">🔑 API Key Google YouTube:</label>
+                    <input type="text" id="apiKey" name="apiKey" value="${config.apiKey || ''}" placeholder="Inserisci la tua API Key di Google YouTube">
+                </div>
+                
+                <div class="form-group">
+                    <label for="channels">📺 Canali YouTube Seguiti (uno per riga):</label>
+                    <textarea id="channels" name="channels" placeholder="Inserisci un link per riga ai canali YouTube che vuoi seguire&#10;Esempio:&#10;https://www.youtube.com/@RaffaeleGaito&#10;https://www.youtube.com/@nomecanale">${config.channels ? config.channels.map(ch => ch.url).join('\\n') : ''}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <button type="submit" class="btn btn-success">💾 Salva Configurazione</button>
+                    <button type="button" class="btn btn-secondary" onclick="generateConfigUrl()">🔗 Genera URL Configurazione</button>
+                </div>
+            </form>
+            
+            <div id="status"></div>
+            
+            <div class="url-display">
+                <h4>📋 URL Manifest (per Stremio)</h4>
+                <div class="url" id="manifestUrl">${baseUrl}/manifest.json</div>
+                <button class="copy-btn" onclick="copyManifest()">Copia</button>
+            </div>
+            
+            <div class="url-display">
+                <h4>🔗 URL Configurazione (NON per Stremio)</h4>
+                <div class="url" id="configUrl">${baseUrl}/</div>
+                <button class="copy-btn" onclick="copyConfigUrl()">Copia</button>
+            </div>
+            
+            <div class="url-display">
+                <h4>🎬 Esempio Endpoint Proxy</h4>
+                <div class="url" id="proxyUrl">${baseUrl}/proxy/movie/yt_VIDEO_ID</div>
+                <button class="copy-btn" onclick="copyProxyUrl()">Copia</button>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn btn-success" onclick="installInStremio()">📱 Installa in Stremio</button>
+            </div>
         </div>
-        <div class="actions">
-          <button class="btn" type="button" onclick="copyManifest()">Copia URL manifest</button>
-          <button class="btn secondary" type="button" onclick="installInStremio()">Installa in Stremio</button>
-        </div>
-        <input id="manifestUrlInput" type="text" class="muted" readonly style="margin-top:10px; width:100%;" />
-        <div class="hint" style="margin-top:8px;">
-          <strong>Esempio catalog search:</strong> <code id="catalogExample"></code>
-        </div>
-        <div class="hint" style="margin-top:8px;">
-          <strong>URL configurazione per Stremio:</strong> <code id="stremioConfigUrl"></code>
-        </div>
-      </div>
     </div>
 
-    <form class="card" onsubmit="saveConfig(event)">
-      <div class="row">
-        <label for="apiKey">Google API key</label>
-        <input id="apiKey" type="text" placeholder="AIza..." />
-      </div>
-      <div class="row">
-        <label for="channels">Canali seguiti (una riga per canale: NOME[tab o 2+ spazi]URL)</label>
-        <textarea id="channels" placeholder="Nome Canale\\thttps://www.youtube.com/@canale"></textarea>
-        <div class="hint">Esempio: <code>Fireship\\thttps://www.youtube.com/@Fireship</code></div>
-      </div>
-      <div class="actions">
-        <button class="btn" type="submit">Salva</button>
-        <span id="status" style="align-self:center;"></span>
-      </div>
-    </form>
+    <script>
+        // Carica la configurazione all'avvio
+        document.addEventListener('DOMContentLoaded', function() {
+            loadConfig();
+        });
 
-    <div class="card">
-      <div class="row">
-        <div><strong>URL configurazione (NON per Stremio)</strong></div>
-        <div class="hint">Questo URL include le impostazioni correnti (API key e canali) per condividerle/ricaricarle su questa pagina admin. <strong>NON va installato in Stremio</strong> - usa solo l'URL manifest sopra.</div>
-      </div>
-      <div class="actions">
-        <button class="btn ghost" type="button" onclick="generateConfigUrl(false)">Genera URL (chiaro)</button>
-        <button class="btn ghost" type="button" onclick="generateConfigUrl(true)">Genera URL (base64)</button>
-      </div>
-      <input id="configUrl" type="text" class="muted" readonly style="margin-top:10px; width:100%;" />
-    </div>
-  </div>
+        // Carica la configurazione dal server
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const config = await response.json();
+                    document.getElementById('apiKey').value = config.apiKey || '';
+                    document.getElementById('channels').value = config.channels ? config.channels.map(ch => ch.url).join('\\n') : '';
+                }
+            } catch (error) {
+                console.error('Errore nel caricamento della configurazione:', error);
+            }
+        }
+
+        // Salva la configurazione
+        async function saveConfig() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const channelsText = document.getElementById('channels').value.trim();
+            
+            if (!apiKey) {
+                showStatus('Inserisci l\'API Key di Google YouTube', 'error');
+                return;
+            }
+            
+            const channels = channelsText.split('\\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0)
+                .map(url => ({ url, name: extractChannelName(url) }));
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ apiKey, channels })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.apiKey || result.channels) {
+                        showStatus('Configurazione salvata con successo!', 'success');
+                        // Ricarica i campi per mostrare i dati salvati
+                        document.getElementById('apiKey').value = result.apiKey || '';
+                        document.getElementById('channels').value = result.channels ? result.channels.map(ch => ch.url).join('\\n') : '';
+                        // Aggiorna l'UI del manifest
+                        refreshManifestUi();
+                    } else {
+                        showStatus('Errore nel salvataggio della configurazione', 'error');
+                    }
+                } else {
+                    showStatus('Errore nel salvataggio della configurazione', 'error');
+                }
+            } catch (error) {
+                console.error('Errore nel salvataggio:', error);
+                showStatus('Errore nel salvataggio della configurazione', 'error');
+            }
+        }
+
+        // Estrae il nome del canale dall'URL
+        function extractChannelName(url) {
+            try {
+                const urlObj = new URL(url);
+                if (urlObj.pathname.includes('@')) {
+                    return '@' + urlObj.pathname.split('@')[1];
+                } else if (urlObj.pathname.includes('/channel/')) {
+                    return 'Channel ' + urlObj.pathname.split('/channel/')[1];
+                } else if (urlObj.pathname.includes('/c/')) {
+                    return 'Custom ' + urlObj.pathname.split('/c/')[1];
+                } else {
+                    return urlObj.hostname;
+                }
+            } catch (error) {
+                return url;
+            }
+        }
+
+        // Mostra messaggi di stato
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 5000);
+        }
+
+        // Aggiorna l'UI del manifest
+        function refreshManifestUi() {
+            const baseUrl = window.location.origin;
+            document.getElementById('manifestUrl').textContent = \`\${baseUrl}/manifest.json\`;
+            document.getElementById('configUrl').textContent = \`\${baseUrl}/\`;
+            document.getElementById('proxyUrl').textContent = \`\${baseUrl}/proxy/movie/yt_VIDEO_ID\`;
+        }
+
+        // Copia URL nel clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showStatus('URL copiato nel clipboard!', 'success');
+            }).catch(() => {
+                showStatus('Errore nella copia dell\'URL', 'error');
+            });
+        }
+
+        // Funzioni per i pulsanti copia
+        function copyManifest() {
+            copyToClipboard(document.getElementById('manifestUrl').textContent);
+        }
+
+        function copyConfigUrl() {
+            copyToClipboard(document.getElementById('configUrl').textContent);
+        }
+
+        function copyProxyUrl() {
+            copyToClipboard(document.getElementById('proxyUrl').textContent);
+        }
+
+        // Genera URL di configurazione
+        function generateConfigUrl() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const channelsText = document.getElementById('channels').value.trim();
+            
+            if (!apiKey) {
+                showStatus('Inserisci prima l\'API Key', 'error');
+                return;
+            }
+            
+            const channels = channelsText.split('\\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+            
+            const params = new URLSearchParams();
+            params.set('apiKey', apiKey);
+            if (channels.length > 0) {
+                params.set('channels', channels.join('\\n'));
+            }
+            
+            const configUrl = \`\${window.location.origin}/?\${params.toString()}\`;
+            document.getElementById('configUrl').textContent = configUrl;
+            showStatus('URL di configurazione generato!', 'success');
+        }
+
+        // Installa in Stremio
+        function installInStremio() {
+            const manifestUrl = document.getElementById('manifestUrl').textContent;
+            const stremioUrl = \`stremio://\${window.location.host}/manifest.json\`;
+            window.open(stremioUrl, '_blank');
+            showStatus('Apertura Stremio...', 'success');
+        }
+
+        // Gestisce l'invio del form
+        document.getElementById('configForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveConfig();
+        });
+
+        // Applica configurazione da URL se presente
+        function applyConfigFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const apiKey = urlParams.get('apiKey');
+            const channels = urlParams.get('channels');
+            
+            if (apiKey) {
+                document.getElementById('apiKey').value = apiKey;
+            }
+            if (channels) {
+                document.getElementById('channels').value = channels;
+            }
+        }
+
+        // Applica configurazione all'avvio se presente negli URL
+        applyConfigFromUrl();
+    </script>
 </body>
-</html>`);
+</html>
+    `);
 });
 
 app.listen(APP_PORT, () => {
