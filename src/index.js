@@ -105,11 +105,26 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 
 		if (id === 'omg-youtube-followed' && type === 'channel') {
 			const chosen = (extra.genre || '').trim();
-			if (!chosen) return res.json({ metas: [] });
-			const channel = (config.channels || []).find((c) => c.name === chosen);
+			if (!chosen) {
+				// Se non è specificato un canale, restituisci la lista dei canali disponibili
+				// Stremio può mostrare questo come "seleziona un canale"
+				const availableChannels = channels.map((c) => ({
+					id: `genre_${c.name}`,
+					type: 'channel',
+					name: c.name,
+					description: `Canale: ${c.url}`,
+					poster: c.channelThumbnail || 'https://www.youtube.com/s/desktop/99a30123/img/favicon_144x144.png',
+					posterShape: 'landscape'
+				}));
+				return res.json({ metas: availableChannels });
+			}
+			
+			const channel = channels.find((c) => c.name === chosen);
 			if (!channel) return res.json({ metas: [] });
+			
 			const channelId = channel.channelId || (await getChannelIdFromInput({ apiKey, input: channel.url }));
 			if (!channelId) return res.json({ metas: [] });
+			
 			const videos = await fetchChannelLatestVideos({ apiKey, channelId, maxResults: 50 });
 			const metas = videos.map((r) => ({
 				id: `yt_${r.videoId}`,
@@ -156,6 +171,12 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 // Admin API
 app.get('/api/config', (req, res) => {
 	res.json(loadConfig());
+});
+
+app.get('/api/channels', (req, res) => {
+	const config = loadConfig();
+	const channels = config.channels || [];
+	res.json({ channels: channels.map(c => ({ name: c.name, url: c.url })) });
 });
 
 app.post('/api/config', async (req, res) => {
