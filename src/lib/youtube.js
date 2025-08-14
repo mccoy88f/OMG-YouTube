@@ -34,7 +34,9 @@ async function searchVideos({ apiKey, query, maxResults = 50 }) {
 		maxResults: Math.min(50, maxResults),
 		key: apiKey,
 		regionCode: 'IT',
-		relevanceLanguage: 'it'
+		relevanceLanguage: 'it',
+		videoEmbeddable: 'any',
+		safeSearch: 'none'
 	};
 	const { data } = await axios.get(`${YT_API_BASE}/search`, { params });
 	return (data.items || []).map(toVideoMeta);

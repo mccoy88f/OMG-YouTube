@@ -4,7 +4,7 @@ const morgan = require('morgan');
 const path = require('path');
 
 const { loadConfig, saveConfig, ensureDataDir } = require('./lib/config');
-const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos } = require('./lib/youtube');
+const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos, fetchChannelTitleAndThumb } = require('./lib/youtube');
 const { getStreamUrlForVideo } = require('./lib/yt');
 
 const APP_PORT = process.env.PORT ? Number(process.env.PORT) : 3100;
@@ -67,7 +67,7 @@ app.get(['/manifest.json', '/manifest'], (req, res) => {
 // Catalog
 app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 	const { type, id } = req.params;
-	const extra = parseExtra(req.params.extra);
+    const extra = { ...req.query, ...parseExtra(req.params.extra) };
 	const config = loadConfig();
 	const apiKey = config.apiKey;
 	if (!apiKey) {
@@ -147,19 +147,53 @@ app.get('/api/config', (req, res) => {
 	res.json(loadConfig());
 });
 
-app.post('/api/config', (req, res) => {
-	const { apiKey, channels } = req.body || {};
-	const sanitizedChannels = Array.isArray(channels)
-		? channels
-			.filter((c) => c && (c.url || c.name))
-			.map((c) => ({ name: String(c.name || '').trim(), url: String(c.url || '').trim(), channelId: c.channelId ? String(c.channelId) : undefined }))
-		: [];
-	const conf = {
-		apiKey: String(apiKey || '').trim(),
-		channels: sanitizedChannels
-	};
-	saveConfig(conf);
-	res.json({ ok: true });
+app.post('/api/config', async (req, res) => {
+    const { apiKey, channels } = req.body || {};
+    const providedApiKey = String(apiKey || '').trim();
+
+    function deriveNameFromUrl(url) {
+        try {
+            const u = new URL(url);
+            const h = u.pathname.match(/@([A-Za-z0-9._-]+)/);
+            if (h) return `@${h[1]}`;
+            const c = u.pathname.match(/channel\/([A-Za-z0-9_-]+)/);
+            if (c) return c[1];
+            return u.hostname.replace(/^www\./, '');
+        } catch {
+            return url;
+        }
+    }
+
+    const baseSanitized = Array.isArray(channels)
+        ? channels
+            .filter((c) => c && (c.url || c.name))
+            .map((c) => {
+                const url = String(c.url || '').trim();
+                const name = String(c.name || '').trim() || deriveNameFromUrl(url);
+                return { name, url };
+            })
+        : [];
+
+    // Enrich channels with channelId and official title when possibile
+    const enriched = [];
+    for (const ch of baseSanitized) {
+        let channelId = undefined;
+        let name = ch.name;
+        if (providedApiKey && ch.url) {
+            try {
+                channelId = await getChannelIdFromInput({ apiKey: providedApiKey, input: ch.url });
+                if (channelId) {
+                    const meta = await fetchChannelTitleAndThumb({ apiKey: providedApiKey, channelId });
+                    if (meta.channelTitle) name = meta.channelTitle;
+                }
+            } catch {}
+        }
+        enriched.push({ name, url: ch.url, channelId });
+    }
+
+    const conf = { apiKey: providedApiKey, channels: enriched };
+    saveConfig(conf);
+    res.json(conf);
 });
 
 // Simple frontend
@@ -211,24 +245,36 @@ app.get('/', (req, res) => {
       const apiKey = document.getElementById('apiKey').value.trim();
       const raw = document.getElementById('channels').value.trim();
       const channels = raw ? raw.split(/\n+/).map(line => {
-        const [name, url] = line.split(/\t|\s{2,}/);
-        return { name: (name || '').trim(), url: (url || '').trim() };
-      }).filter(c => c.name && c.url) : [];
+        const parts = line.split(/\t|\s{2,}/).map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2) return { name: parts[0], url: parts[1] };
+        if (parts.length === 1) return { name: '', url: parts[0] };
+        return null;
+      }).filter(c => c && c.url) : [];
       const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, channels }) });
       const data = await res.json();
       const out = document.getElementById('status');
       out.textContent = data.ok ? 'Salvato.' : 'Errore';
       out.className = data.ok ? 'ok' : 'err';
       setTimeout(()=>{ out.textContent=''; out.className=''; }, 2500);
+      // Ricarica i campi dalla risposta (se abbiamo restituito l'oggetto config)
+      if (data && (data.apiKey || data.channels)) {
+        if (typeof data.apiKey === 'string') document.getElementById('apiKey').value = data.apiKey;
+        if (Array.isArray(data.channels)) {
+          const lines = data.channels.map(c => (c.name ? (c.name + '\t' + (c.url||'')) : (c.url||'')));
+          document.getElementById('channels').value = lines.join('\n');
+        }
+      }
       refreshManifestUi();
     }
     function getOrigin() { return window.location.origin; }
     function getManifestUrl() { return getOrigin() + '/manifest.json'; }
+    // Mostra anche un URL di catalog per test rapidi (search)
+    function getExampleSearchUrl() { return getOrigin() + '/catalog/movie/omg-youtube-search/search=%7Bquery%7D.json'; }
     function refreshManifestUi() {
       const url = getManifestUrl();
       document.getElementById('manifestUrl').textContent = url;
       document.getElementById('manifestUrl').setAttribute('data-url', url);
-      document.getElementById('manifestUrlInput').value = url;
+      document.getElementById('manifestUrlInput').value = url + '\nEsempio catalog search: ' + getExampleSearchUrl();
     }
     async function copyManifest() {
       const url = document.getElementById('manifestUrl').getAttribute('data-url');
