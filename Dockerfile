@@ -13,7 +13,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
 
 COPY src ./src
-COPY data ./data
+RUN mkdir -p /app/data
 
 ENV NODE_ENV=production
 ENV PORT=3100
