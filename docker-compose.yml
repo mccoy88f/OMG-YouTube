@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  omg-youtube:
+    build: .
+    container_name: omg-youtube
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      - PUBLIC_HOST=localhost:3100
+    volumes:
+      - ./data:/app/data
+
+
