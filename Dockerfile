@@ -4,8 +4,10 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
-    yt-dlp \
-  && rm -rf /var/lib/apt/lists/*
+    python3 \
+    python3-pip \
+  && rm -rf /var/lib/apt/lists/* \
+  && pip3 install --no-cache-dir yt-dlp --break-system-packages
 
 # Crea directory dell'app
 WORKDIR /app
