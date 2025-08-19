@@ -56,7 +56,7 @@ async function getStreamUrlForVideo(videoId) {
     return new Promise((resolve, reject) => {
         const ytDlp = spawn('yt-dlp', [
             '-g',
-            '-f', 'best[ext=mp4]/best[height<=1080]/best',
+            '-f', 'best[height<=2160]/best[height<=1440]/best[height<=1080]/best',
             '--no-playlist',
             '--extractor-args', 'youtube:player_client=android',
             '--force-generic-extractor',
@@ -107,21 +107,22 @@ async function getStreamUrlForVideo(videoId) {
 }
 
 /**
- * Crea uno stream proxy per un video YouTube
+ * Crea uno stream proxy per un video YouTube con qualità specifica
  * @param {string} videoId - ID del video YouTube
+ * @param {string} quality - Formato qualità per yt-dlp (default: best)
  * @returns {Promise<Readable>} Stream leggibile
  */
-async function createVideoStream(videoId) {
+async function createVideoStreamWithQuality(videoId, quality = 'best[height<=2160]/best[height<=1440]/best[height<=1080]/best') {
     const isAvailable = await checkYtDlpAvailable();
     if (!isAvailable) {
         throw new Error('yt-dlp non è installato o non disponibile');
     }
 
-    console.log(`🎬 Creazione stream proxy per video: ${videoId}`);
+    console.log(`🎬 Creazione stream proxy per video: ${videoId} - Qualità: ${quality}`);
 
     return new Promise((resolve, reject) => {
         const ytDlp = spawn('yt-dlp', [
-            '-f', 'best[ext=mp4]/best[height<=1080]/best',
+            '-f', quality,
             '-o', '-', // Output su stdout
             '--no-playlist',
             '--no-cache-dir',
@@ -131,75 +132,44 @@ async function createVideoStream(videoId) {
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
-        console.log(`🚀 yt-dlp avviato per streaming: ${videoId}`);
+        console.log(`🚀 yt-dlp avviato per streaming: ${videoId} con qualità ${quality}`);
 
-        // Crea uno stream leggibile che inoltra i dati di yt-dlp
-        const stream = new Readable({
-            read() {
-                // yt-dlp gestisce automaticamente la lettura
-            }
-        });
-
-        // Inoltra i dati da yt-dlp allo stream
         ytDlp.stdout.on('data', (chunk) => {
-            if (!stream.push(chunk)) {
-                // Se lo stream è saturo, pausa yt-dlp
-                ytDlp.stdout.pause();
-            }
+            console.log(`📊 Chunk ricevuto per ${videoId}: ${chunk.length} bytes`);
         });
 
-        // Gestisce la fine dello stream
-        ytDlp.stdout.on('end', () => {
-            console.log(`✅ Stream completato per video: ${videoId}`);
-            stream.push(null);
-        });
-
-        // Gestisce gli errori
         ytDlp.stderr.on('data', (data) => {
-            console.log(`📝 yt-dlp stderr per ${videoId}: ${data.toString().trim()}`);
+            console.log(`yt-dlp stderr per ${videoId}: ${data.toString()}`);
         });
 
         ytDlp.on('error', (error) => {
-            console.log(`❌ Errore yt-dlp per ${videoId}: ${error.message}`);
-            stream.destroy(error);
+            console.error(`❌ yt-dlp process error per ${videoId}:`, error.message);
+            reject(error);
         });
 
-        ytDlp.on('close', (code) => {
+        ytDlp.on('exit', (code) => {
             if (code !== 0) {
-                console.log(`❌ yt-dlp chiuso con codice ${code} per video: ${videoId}`);
-                stream.destroy(new Error(`yt-dlp fallito con codice ${code}`));
+                console.error(`❌ yt-dlp uscito con codice ${code} per ${videoId}`);
+                reject(new Error(`yt-dlp fallito con codice ${code}`));
             } else {
-                console.log(`✅ yt-dlp completato con successo per video: ${videoId}`);
+                console.log(`✅ yt-dlp completato per ${videoId}`);
             }
         });
 
-        // Gestisce la ripresa dello stream
-        stream.on('resume', () => {
-            ytDlp.stdout.resume();
-        });
-
-        // Timeout per lo stream
-        const timeout = setTimeout(() => {
-            console.log(`⏰ Timeout stream per video: ${videoId}`);
-            ytDlp.kill();
-            stream.destroy(new Error('Timeout nello stream del video'));
-        }, 300000); // 5 minuti
-
-        stream.on('close', () => {
-            clearTimeout(timeout);
-            ytDlp.kill();
-            console.log(`🔒 Stream chiuso per video: ${videoId}`);
-        });
-
-        resolve(stream);
+        // Restituisci lo stdout come stream
+        resolve(ytDlp.stdout);
     });
 }
 
 /**
- * Ottiene informazioni sui formati disponibili per un video
+ * Crea uno stream proxy per un video YouTube (versione legacy)
  * @param {string} videoId - ID del video YouTube
- * @returns {Promise<Object>} Informazioni sui formati
+ * @returns {Promise<Readable>} Stream leggibile
  */
+async function createVideoStream(videoId) {
+    return createVideoStreamWithQuality(videoId);
+}
+
 async function getVideoFormats(videoId) {
     const isAvailable = await checkYtDlpAvailable();
     if (!isAvailable) {
@@ -290,6 +260,7 @@ module.exports = {
     checkYtDlpAvailable,
     getStreamUrlForVideo,
     createVideoStream,
+    createVideoStreamWithQuality,
     getVideoFormats
 };
 

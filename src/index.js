@@ -5,7 +5,7 @@ const path = require('path');
 
 const { loadConfig, saveConfig, ensureDataDir } = require('./lib/config');
 const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos, fetchChannelTitleAndThumb } = require('./lib/youtube');
-const { getStreamUrlForVideo, createVideoStream } = require('./lib/yt.js');
+const { getStreamUrlForVideo, createVideoStream, createVideoStreamWithQuality } = require('./lib/yt.js');
 
 const APP_PORT = process.env.PORT ? Number(process.env.PORT) : 3100;
 
@@ -539,15 +539,39 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         
         const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         
-        // Restituisci l'URL del proxy invece dell'URL diretto di Google
+        // Passa i parametri di configurazione al proxy
+        const queryString = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
+        const proxyUrl = queryString ? 
+            `${baseUrl}/proxy/${type}/${id}?${queryString}` : 
+            `${baseUrl}/proxy/${type}/${id}`;
+        
+        console.log(`   🎬 Proxy URL generato: ${proxyUrl}`);
+        
+        // Restituisci multiple opzioni di qualità
         res.json({
-            streams: [{
-                url: `${baseUrl}/proxy/${type}/${id}`,
-                title: 'OMG YouTube',
-                ytId: videoId,
-                quality: 'best',
-                format: 'mp4'
-            }]
+            streams: [
+                {
+                    url: proxyUrl,
+                    title: '🎬 OMG YouTube - Qualità Massima',
+                    ytId: videoId,
+                    quality: '2160p+',
+                    format: 'hls'
+                },
+                {
+                    url: proxyUrl.replace('/proxy/', '/proxy-1080/'),
+                    title: '📺 OMG YouTube - Full HD (1080p)',
+                    ytId: videoId,
+                    quality: '1080p',
+                    format: 'hls'
+                },
+                {
+                    url: proxyUrl.replace('/proxy/', '/proxy-720/'),
+                    title: '📱 OMG YouTube - HD (720p)',
+                    ytId: videoId,
+                    quality: '720p',
+                    format: 'hls'
+                }
+            ]
         });
         
     } catch (error) {
@@ -844,8 +868,22 @@ app.get('/meta/:type/:id.json', async (req, res) => {
     }
 });
 
-// Nuovo endpoint per streaming proxy diretto
+// Endpoint proxy per diverse qualità
+app.get('/proxy-1080/:type/:id', async (req, res) => {
+    return handleProxyStream(req, res, 'best[height<=1080]/best');
+});
+
+app.get('/proxy-720/:type/:id', async (req, res) => {
+    return handleProxyStream(req, res, 'best[height<=720]/best');
+});
+
+// Nuovo endpoint per streaming proxy diretto (qualità massima)
 app.get('/proxy/:type/:id', async (req, res) => {
+    return handleProxyStream(req, res, 'best[height<=2160]/best[height<=1440]/best[height<=1080]/best');
+});
+
+// Funzione condivisa per gestire il proxy streaming
+async function handleProxyStream(req, res, quality) {
     try {
         const { type, id } = req.params;
         
@@ -860,6 +898,7 @@ app.get('/proxy/:type/:id', async (req, res) => {
         console.log(`   URL completo: ${req.originalUrl}`);
         console.log(`   User-Agent: ${req.get('User-Agent') || 'N/A'}`);
         console.log(`   Accept: ${req.get('Accept') || 'N/A'}`);
+        console.log(`   🎯 Qualità richiesta: ${quality}`);
         
         // Imposta gli header per lo streaming video
         res.setHeader('Content-Type', 'video/mp4');
@@ -867,8 +906,8 @@ app.get('/proxy/:type/:id', async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         
-        // Crea lo stream del video
-        const videoStream = await createVideoStream(videoId);
+        // Crea lo stream del video con qualità specifica
+        const videoStream = await createVideoStreamWithQuality(videoId, quality);
         
         // Gestisci gli errori dello stream
         videoStream.on('error', (error) => {
@@ -901,7 +940,7 @@ app.get('/proxy/:type/:id', async (req, res) => {
             res.status(500).json({ error: 'Errore nell\'avvio dello stream' });
         }
     }
-});
+}
 
 // Admin API
 app.get('/api/config', (req, res) => {
