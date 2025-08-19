@@ -552,9 +552,9 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         console.log(`   🎬 Proxy URL generato: ${proxyUrl}`);
         
         // URLs per le diverse qualità
-        const url1080 = queryString ? 
-            `${baseUrl}/proxy-1080/${type}/${id}?${queryString}` : 
-            `${baseUrl}/proxy-1080/${type}/${id}`;
+        const url360 = queryString ? 
+            `${baseUrl}/proxy-360/${type}/${id}?${queryString}` : 
+            `${baseUrl}/proxy-360/${type}/${id}`;
         const url720 = queryString ? 
             `${baseUrl}/proxy-720/${type}/${id}?${queryString}` : 
             `${baseUrl}/proxy-720/${type}/${id}`;
@@ -564,23 +564,23 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             streams: [
                 {
                     url: proxyUrl,
-                    title: '🎬 OMG YouTube - Qualità Massima',
+                    title: '🎬 OMG YouTube - Alta Qualità (>1080p)',
                     ytId: videoId,
-                    quality: '2160p+',
-                    format: 'hls'
-                },
-                {
-                    url: url1080,
-                    title: '📺 OMG YouTube - Full HD (1080p)',
-                    ytId: videoId,
-                    quality: '1080p',
+                    quality: '1440p+',
                     format: 'hls'
                 },
                 {
                     url: url720,
-                    title: '📱 OMG YouTube - HD (720p)',
+                    title: '📺 OMG YouTube - Media Qualità (720p)',
                     ytId: videoId,
                     quality: '720p',
+                    format: 'hls'
+                },
+                {
+                    url: url360,
+                    title: '📱 OMG YouTube - Bassa Qualità (≤360p)',
+                    ytId: videoId,
+                    quality: '360p',
                     format: 'hls'
                 }
             ]
@@ -881,17 +881,17 @@ app.get('/meta/:type/:id.json', async (req, res) => {
 });
 
 // Endpoint proxy per diverse qualità
-app.get('/proxy-1080/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=1080]');
+app.get('/proxy-360/:type/:id', async (req, res) => {
+    return handleProxyStream(req, res, 'best[height<=360]');
 });
 
 app.get('/proxy-720/:type/:id', async (req, res) => {
     return handleProxyStream(req, res, 'best[height<=720]');
 });
 
-// Nuovo endpoint per streaming proxy diretto (qualità massima)
+// Nuovo endpoint per streaming proxy diretto (qualità massima >1080p)
 app.get('/proxy/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best');
+    return handleProxyStream(req, res, 'best[height>1080]/best');
 });
 
 // Funzione condivisa per gestire il proxy streaming
