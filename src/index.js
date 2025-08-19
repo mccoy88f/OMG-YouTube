@@ -729,6 +729,61 @@ app.get('/api/yt-dlp-status', async (req, res) => {
     }
 });
 
+// Endpoint per verificare l'API Key YouTube
+app.post('/api/verify-api-key', async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        
+        if (!apiKey || apiKey.trim() === '') {
+            return res.json({
+                valid: false,
+                message: 'API Key non fornita'
+            });
+        }
+        
+        // Testa l'API Key con una richiesta semplice
+        const { searchVideos } = require('./lib/youtube');
+        const testResults = await searchVideos({ 
+            apiKey: apiKey.trim(), 
+            query: 'test', 
+            maxResults: 1 
+        });
+        
+        if (testResults && testResults.length > 0) {
+            res.json({
+                valid: true,
+                message: 'API Key valida e funzionante',
+                testResults: testResults.length
+            });
+        } else {
+            res.json({
+                valid: false,
+                message: 'API Key non valida o quota esaurita'
+            });
+        }
+        
+    } catch (error) {
+        console.error('API Key verification error:', error.message);
+        
+        if (error.message.includes('API key not valid')) {
+            res.json({
+                valid: false,
+                message: 'API Key non valida'
+            });
+        } else if (error.message.includes('quotaExceeded')) {
+            res.json({
+                valid: false,
+                message: 'Quota API esaurita'
+            });
+        } else {
+            res.json({
+                valid: false,
+                message: `Errore nella verifica: ${error.message}`
+            });
+        }
+    }
+});
+
 app.post('/api/config', async (req, res) => {
     const { apiKey, channels } = req.body || {};
     const providedApiKey = String(apiKey || '').trim();
@@ -1424,6 +1479,29 @@ app.get('/', (req, res) => {
             }
         }
 
+        // Verifica l'API Key
+        async function verifyApiKey(apiKey) {
+            try {
+                const response = await fetch('/api/verify-api-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ apiKey })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    return result;
+                } else {
+                    return { valid: false, message: 'Errore nella verifica' };
+                }
+            } catch (error) {
+                console.error('Errore nella verifica API Key:', error);
+                return { valid: false, message: 'Errore di connessione' };
+            }
+        }
+
         // Aggiorna l'URL del manifest con i parametri correnti
         function updateManifestUrl() {
             const apiKey = document.getElementById('apiKey').value.trim();
@@ -1452,6 +1530,17 @@ app.get('/', (req, res) => {
                 showStatus('Inserisci l\'API Key di Google YouTube', 'error');
                 return;
             }
+            
+            // Verifica prima l'API Key
+            showStatus('🔍 Verifica API Key in corso...', 'info');
+            const verification = await verifyApiKey(apiKey);
+            
+            if (!verification.valid) {
+                showStatus(`❌ ${verification.message}`, 'error');
+                return;
+            }
+            
+            showStatus('✅ API Key verificata, salvataggio configurazione...', 'success');
             
             const channels = channelsText.split('\\n')
                 .map(line => line.trim())
@@ -1635,14 +1724,12 @@ async function startServer() {
 	} catch (error) {
 		console.log('❌ Errore nel controllo di yt-dlp:', error.message);
 	}
-	
-	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
-	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
-	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
-	console.log('🚀 Addon pronto per l\'uso!');
 }
 
-app.listen(APP_PORT, () => {
+app.listen(APP_PORT, async () => {
+	// Controlla yt-dlp all'avvio
+	await startServer();
+	
 	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
 	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
 	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
