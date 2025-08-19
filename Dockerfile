@@ -7,8 +7,9 @@ RUN apk add --no-cache \
     ffmpeg \
     && rm -rf /var/cache/apk/*
 
-# Installa yt-dlp
-RUN pip3 install --no-cache-dir yt-dlp
+# Installa yt-dlp e aggiorna all'ultima versione
+RUN pip3 install --no-cache-dir yt-dlp && \
+    yt-dlp -U
 
 # Crea directory dell'app
 WORKDIR /app

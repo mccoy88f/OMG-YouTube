@@ -58,6 +58,9 @@ async function getStreamUrlForVideo(videoId) {
             '-g',
             '-f', 'best[ext=mp4]/best[height<=1080]/best',
             '--no-playlist',
+            '--extractor-args', 'youtube:player_client=android',
+            '--force-generic-extractor',
+            '--no-check-certificates',
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
@@ -122,6 +125,9 @@ async function createVideoStream(videoId) {
             '-o', '-', // Output su stdout
             '--no-playlist',
             '--no-cache-dir',
+            '--extractor-args', 'youtube:player_client=android',
+            '--force-generic-extractor',
+            '--no-check-certificates',
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
@@ -207,6 +213,9 @@ async function getVideoFormats(videoId) {
             '--dump-json',
             '--no-playlist',
             '--no-cache-dir',
+            '--extractor-args', 'youtube:player_client=android',
+            '--force-generic-extractor',
+            '--no-check-certificates',
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
@@ -252,7 +261,14 @@ async function getVideoFormats(videoId) {
                 }
             } else {
                 console.log(`❌ yt-dlp fallito con codice ${code} per ${videoId}: ${stderr}`);
-                reject(new Error(`yt-dlp fallito con codice ${code}: ${stderr}`));
+                
+                // Se fallisce, prova con opzioni alternative
+                if (stderr.includes('Signature extraction failed') || stderr.includes('No video formats found')) {
+                    console.log(`🔄 Tentativo con opzioni alternative per ${videoId}...`);
+                    resolve(null); // Indica che deve usare fallback
+                } else {
+                    reject(new Error(`yt-dlp fallito con codice ${code}: ${stderr}`));
+                }
             }
         });
 

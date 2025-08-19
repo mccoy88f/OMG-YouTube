@@ -472,49 +472,54 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                 // Usa yt-dlp per ottenere informazioni complete del video
                 const videoInfo = await getVideoFormats(videoId);
                 
-                // Costruisci i metadati nel formato richiesto da Stremio
-                const meta = {
-                    id: `yt_${videoId}`,
-                    type: 'movie',
-                    name: videoInfo.title || `Video ${videoId}`,
-                    description: videoInfo.description || 'Video YouTube',
-                    poster: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                    posterShape: 'landscape',
-                    logo: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                    background: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                    genre: ['YouTube'],
-                    releaseInfo: videoInfo.upload_date ? `${videoInfo.upload_date} (${videoInfo.duration_string || 'N/A'})` : 'YouTube',
-                    director: videoInfo.channel || videoInfo.uploader || 'YouTube',
-                    cast: [videoInfo.channel || videoInfo.uploader || 'YouTube'],
-                    country: 'YouTube',
-                    language: videoInfo.language || 'it',
-                    subtitles: videoInfo.subtitles ? Object.keys(videoInfo.subtitles) : [],
-                    year: videoInfo.upload_date ? parseInt(videoInfo.upload_date.substring(0, 4)) : new Date().getFullYear(),
-                    released: videoInfo.upload_date ? `${videoInfo.upload_date.substring(0, 4)}-${videoInfo.upload_date.substring(4, 6)}-${videoInfo.upload_date.substring(6, 8)}` : new Date().toISOString().split('T')[0],
-                    runtime: videoInfo.duration ? Math.floor(videoInfo.duration / 60) : undefined,
-                    links: [
-                        {
-                            name: 'YouTube',
-                            category: 'watch',
-                            url: `https://www.youtube.com/watch?v=${videoId}`
+                // Se yt-dlp restituisce null, usa fallback
+                if (!videoInfo) {
+                    console.log(`yt-dlp fallito per ${videoId}, uso fallback API YouTube`);
+                } else {
+                    // Costruisci i metadati nel formato richiesto da Stremio
+                    const meta = {
+                        id: `yt_${videoId}`,
+                        type: 'movie',
+                        name: videoInfo.title || `Video ${videoId}`,
+                        description: videoInfo.description || 'Video YouTube',
+                        poster: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        posterShape: 'landscape',
+                        logo: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        background: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        genre: ['YouTube'],
+                        releaseInfo: videoInfo.upload_date ? `${videoInfo.upload_date} (${videoInfo.duration_string || 'N/A'})` : 'YouTube',
+                        director: videoInfo.channel || videoInfo.uploader || 'YouTube',
+                        cast: [videoInfo.channel || videoInfo.uploader || 'YouTube'],
+                        country: 'YouTube',
+                        language: videoInfo.language || 'it',
+                        subtitles: videoInfo.subtitles ? Object.keys(videoInfo.subtitles) : [],
+                        year: videoInfo.upload_date ? parseInt(videoInfo.upload_date.substring(0, 4)) : new Date().getFullYear(),
+                        released: videoInfo.upload_date ? `${videoInfo.upload_date.substring(0, 4)}-${videoInfo.upload_date.substring(4, 6)}-${videoInfo.upload_date.substring(6, 8)}` : new Date().toISOString().split('T')[0],
+                        runtime: videoInfo.duration ? Math.floor(videoInfo.duration / 60) : undefined,
+                        links: [
+                            {
+                                name: 'YouTube',
+                                category: 'watch',
+                                url: `https://www.youtube.com/watch?v=${videoId}`
+                            }
+                        ],
+                        // Metadati aggiuntivi specifici di YouTube
+                        _yt: {
+                            videoId: videoId,
+                            channelId: videoInfo.channel_id,
+                            viewCount: videoInfo.view_count,
+                            likeCount: videoInfo.like_count,
+                            uploadDate: videoInfo.upload_date,
+                            duration: videoInfo.duration_string,
+                            tags: videoInfo.tags || [],
+                            categories: videoInfo.categories || [],
+                            formats: videoInfo.formats ? videoInfo.formats.length : 0
                         }
-                    ],
-                    // Metadati aggiuntivi specifici di YouTube
-                    _yt: {
-                        videoId: videoId,
-                        channelId: videoInfo.channel_id,
-                        viewCount: videoInfo.view_count,
-                        likeCount: videoInfo.like_count,
-                        uploadDate: videoInfo.upload_date,
-                        duration: videoInfo.duration_string,
-                        tags: videoInfo.tags || [],
-                        categories: videoInfo.categories || [],
-                        formats: videoInfo.formats ? videoInfo.formats.length : 0
-                    }
-                };
-                
-                res.json({ meta });
-                return;
+                    };
+                    
+                    res.json({ meta });
+                    return;
+                }
             } else {
                 console.log('yt-dlp non disponibile, uso fallback API YouTube');
             }
@@ -1612,27 +1617,31 @@ app.get('/', (req, res) => {
     `);
 });
 
-app.listen(APP_PORT, () => {
+// Controlla lo stato di yt-dlp prima di avviare il server
+async function startServer() {
 	console.log('🎥 OMG YouTube Addon Avviato!');
-	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
-	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
-	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
 	console.log('🔧 Controllo stato yt-dlp...');
 	
-	// Controlla lo stato di yt-dlp all'avvio
-	const { checkYtDlpAvailable } = require('./lib/yt.js');
-	checkYtDlpAvailable().then(available => {
+	try {
+		const { checkYtDlpAvailable } = require('./lib/yt.js');
+		const available = await checkYtDlpAvailable();
+		
 		if (available) {
 			console.log('✅ yt-dlp disponibile - Streaming diretto abilitato');
 		} else {
 			console.log('⚠️ yt-dlp non disponibile - Funzionalità limitate');
 			console.log('💡 Installa yt-dlp per funzionalità complete');
 		}
-	}).catch(error => {
+	} catch (error) {
 		console.log('❌ Errore nel controllo di yt-dlp:', error.message);
-	});
+	}
 	
+	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
+	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
+	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
 	console.log('🚀 Addon pronto per l\'uso!');
-});
+}
+
+app.listen(APP_PORT, startServer);
 
 
