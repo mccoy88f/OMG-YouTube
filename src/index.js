@@ -709,25 +709,7 @@ app.get('/api/channels', (req, res) => {
 	res.json({ channels: channels.map(c => ({ name: c.name, url: c.url })) });
 });
 
-// Endpoint per verificare lo stato di yt-dlp
-app.get('/api/yt-dlp-status', async (req, res) => {
-    try {
-        const { checkYtDlpAvailable } = require('./lib/yt.js');
-        const isAvailable = await checkYtDlpAvailable();
-        
-        res.json({
-            available: isAvailable,
-            status: isAvailable ? 'OK' : 'Non disponibile',
-            message: isAvailable ? 'yt-dlp è installato e funzionante' : 'yt-dlp non è installato o non disponibile'
-        });
-    } catch (error) {
-        res.json({
-            available: false,
-            status: 'Errore',
-            message: `Errore nel controllo di yt-dlp: ${error.message}`
-        });
-    }
-});
+
 
 // Endpoint per verificare l'API Key YouTube
 app.post('/api/verify-api-key', async (req, res) => {
@@ -1404,7 +1386,6 @@ app.get('/', (req, res) => {
             
             <div style="text-align: center; margin-top: 30px;">
                 <button class="btn btn-success" onclick="installInStremio()">📱 Installa in Stremio</button>
-                <button class="btn btn-secondary" onclick="checkYtDlpStatus()">🔄 Ricontrolla yt-dlp</button>
             </div>
         </div>
     </div>
@@ -1413,7 +1394,6 @@ app.get('/', (req, res) => {
         // Carica la configurazione all'avvio
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
-            checkYtDlpStatus();
         });
 
         // Carica la configurazione dal server
@@ -1432,48 +1412,7 @@ app.get('/', (req, res) => {
             }
         }
 
-        // Controlla lo stato di yt-dlp
-        async function checkYtDlpStatus() {
-            try {
-                const response = await fetch('/api/yt-dlp-status');
-                if (response.ok) {
-                    const status = await response.json();
-                    const statusDiv = document.getElementById('yt-dlp-status');
-                    
-                    if (status.available) {
-                        statusDiv.innerHTML = 
-                            '<h3>✅ yt-dlp Disponibile</h3>' +
-                            '<p>yt-dlp è installato e funzionante correttamente.</p>' +
-                            '<p>• Streaming diretto: <strong>Disponibile</strong></p>' +
-                            '<p>• Metadati completi: <strong>Disponibili</strong></p>' +
-                            '<p>• Qualità video: <strong>Ottimale</strong></p>';
-                        statusDiv.className = 'info-box';
-                    } else {
-                        statusDiv.innerHTML = 
-                            '<h3>❌ yt-dlp Non Disponibile</h3>' +
-                            '<p>yt-dlp non è installato o non funziona correttamente.</p>' +
-                            '<p>• Streaming diretto: <strong>Non disponibile</strong></p>' +
-                            '<p>• Metadati: <strong>Limitati (solo API YouTube)</strong></p>' +
-                            '<p><strong>Per installare yt-dlp:</strong></p>' +
-                            '<ul>' +
-                                '<li><strong>macOS:</strong> <code>brew install yt-dlp</code></li>' +
-                                '<li><strong>Ubuntu/Debian:</strong> <code>sudo apt install yt-dlp</code></li>' +
-                                '<li><strong>Windows:</strong> <code>pip install yt-dlp</code></li>' +
-                                '<li><strong>Docker:</strong> <code>docker run --rm -it yt-dlp/yt-dlp --version</code></li>' +
-                            '</ul>';
-                        statusDiv.className = 'important-note';
-                    }
-                }
-            } catch (error) {
-                console.error('Errore nel controllo dello stato di yt-dlp:', error);
-                const statusDiv = document.getElementById('yt-dlp-status');
-                statusDiv.innerHTML = 
-                    '<h3>⚠️ Errore nel Controllo</h3>' +
-                    '<p>Impossibile verificare lo stato di yt-dlp.</p>' +
-                    '<p>Errore: ' + error.message + '</p>';
-                statusDiv.className = 'important-note';
-            }
-        }
+
 
         // Verifica l'API Key
         async function verifyApiKey(apiKey) {
