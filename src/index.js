@@ -1642,6 +1642,11 @@ async function startServer() {
 	console.log('🚀 Addon pronto per l\'uso!');
 }
 
-app.listen(APP_PORT, startServer);
+app.listen(APP_PORT, () => {
+	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
+	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
+	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
+	console.log('🚀 Addon pronto per l\'uso!');
+});
 
 
