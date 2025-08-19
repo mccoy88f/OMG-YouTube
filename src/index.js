@@ -108,6 +108,12 @@ app.get('/manifest.json', (req, res) => {
                         name: extractChannelNameFromUrl(url)
                     }));
                 }
+                
+                if (configData.extractionLimit && typeof configData.extractionLimit === 'number') {
+                    tempConfig.extractionLimit = Math.max(5, Math.min(50, configData.extractionLimit));
+                } else {
+                    tempConfig.extractionLimit = 25; // Valore predefinito
+                }
             } catch (error) {
                 console.log('Errore decodifica configurazione base64:', error.message);
             }
@@ -126,6 +132,11 @@ app.get('/manifest.json', (req, res) => {
                     url, 
                     name: extractChannelNameFromUrl(url) 
                 }));
+            }
+            
+            // Assicuriamo che extractionLimit abbia sempre un valore predefinito
+            if (!tempConfig.extractionLimit) {
+                tempConfig.extractionLimit = 25;
             }
         }
         
@@ -242,6 +253,12 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                         name: extractChannelNameFromUrl(url)
                     }));
                 }
+                
+                if (configData.extractionLimit && typeof configData.extractionLimit === 'number') {
+                    config.extractionLimit = Math.max(5, Math.min(50, configData.extractionLimit));
+                } else {
+                    config.extractionLimit = 25; // Valore predefinito
+                }
             } catch (error) {
                 console.log('   ❌ Errore decodifica configurazione base64:', error.message);
             }
@@ -262,6 +279,11 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     url, 
                     name: extractChannelNameFromUrl(url) 
                 }));
+            }
+            
+            // Assicuriamo che extractionLimit abbia sempre un valore predefinito
+            if (!config.extractionLimit) {
+                config.extractionLimit = 25;
             }
         }
         
@@ -285,7 +307,9 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             console.log(`   📺 Canali configurati: ${config.channels.length}`);
             
             try {
-                const videos = await searchVideos({ apiKey: config.apiKey, query: searchQuery, maxResults: 50 });
+                const extractionLimit = config.extractionLimit || 25;
+                console.log(`   🎯 Limite di estrazione: ${extractionLimit}`);
+                const videos = await searchVideos({ apiKey: config.apiKey, query: searchQuery, maxResults: extractionLimit });
                 console.log(`✅ Ricerca completata: ${videos.length} video trovati`);
                 
                 const metas = videos.map(video => ({
@@ -416,14 +440,34 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 
                 console.log(`   📺 ID canale: ${channelId}`);
                 
-                // Poi recupera i video e le info del canale
-                const [videos, channelInfo] = await Promise.all([
-                    fetchChannelLatestVideos({ apiKey: config.apiKey, channelId, maxResults: 50 }),
+                // Poi recupera i video e le info del canale 
+                const extractionLimit = config.extractionLimit || 25;
+                console.log(`   🎯 Limite per stagione: ${extractionLimit}`);
+                
+                // Recuperiamo più video per creare le stagioni
+                const maxVideosForSeasons = extractionLimit * 4; // Fino a 4 stagioni
+                const [allVideos, channelInfo] = await Promise.all([
+                    fetchChannelLatestVideos({ apiKey: config.apiKey, channelId, maxResults: maxVideosForSeasons }),
                     fetchChannelTitleAndThumb({ apiKey: config.apiKey, channelId })
                 ]);
                 
-                console.log(`✅ Video canale recuperati: ${videos.length} video`);
+                console.log(`✅ Video totali recuperati: ${allVideos.length} video`);
                 console.log(`✅ Info canale recuperate: ${channelInfo.channelTitle}`);
+                
+                // Creiamo le stagioni fittizie dividendo i video
+                const seasons = [];
+                for (let i = 0; i < allVideos.length; i += extractionLimit) {
+                    seasons.push(allVideos.slice(i, i + extractionLimit));
+                }
+                
+                console.log(`📺 Stagioni create: ${seasons.length} stagioni`);
+                seasons.forEach((season, index) => {
+                    console.log(`   Stagione ${index + 1}: ${season.length} video`);
+                });
+                
+                // Per ora mostriamo solo la prima stagione (più recenti)
+                // TODO: In futuro implementare la selezione stagione via extra parameter
+                const videos = seasons[0] || [];
                 
                 const metas = videos.map(video => ({
                     id: `yt_${video.id}`,
@@ -527,25 +571,53 @@ app.get('/meta/:type/:id.json', async (req, res) => {
         
         // Leggi i parametri di configurazione dall'URL del manifest
         const manifestUrl = req.get('Referer') || req.headers.referer || '';
-        let config = { apiKey: '', channels: [] };
+        let config = { apiKey: '', channels: [], extractionLimit: 25 };
         
         try {
             // Estrai parametri dall'URL del manifest
             if (manifestUrl.includes('manifest.json')) {
                 const urlObj = new URL(manifestUrl);
-                const apiKey = urlObj.searchParams.get('apiKey');
-                const channelsParam = urlObj.searchParams.get('channels');
                 
-                if (apiKey) {
-                    config.apiKey = apiKey;
-                }
-                
-                if (channelsParam) {
-                    const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
-                    config.channels = channelUrls.map(url => ({ 
-                        url, 
-                        name: extractChannelNameFromUrl(url) 
-                    }));
+                // Prima prova a decodificare configurazione base64
+                const configParam = urlObj.searchParams.get('config');
+                if (configParam) {
+                    try {
+                        const configJson = Buffer.from(configParam, 'base64').toString('utf8');
+                        const configData = JSON.parse(configJson);
+                        
+                        if (configData.apiKey) {
+                            config.apiKey = configData.apiKey;
+                        }
+                        
+                        if (configData.channels && Array.isArray(configData.channels)) {
+                            config.channels = configData.channels.map(url => ({
+                                url,
+                                name: extractChannelNameFromUrl(url)
+                            }));
+                        }
+                        
+                        if (configData.extractionLimit && typeof configData.extractionLimit === 'number') {
+                            config.extractionLimit = Math.max(5, Math.min(50, configData.extractionLimit));
+                        }
+                    } catch (decodeError) {
+                        console.log('   ❌ Errore decodifica base64 in meta:', decodeError.message);
+                    }
+                } else {
+                    // Fallback per formato legacy (parametri URL diretti)
+                    const apiKey = urlObj.searchParams.get('apiKey');
+                    const channelsParam = urlObj.searchParams.get('channels');
+                    
+                    if (apiKey) {
+                        config.apiKey = apiKey;
+                    }
+                    
+                    if (channelsParam) {
+                        const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+                        config.channels = channelUrls.map(url => ({ 
+                            url, 
+                            name: extractChannelNameFromUrl(url) 
+                        }));
+                    }
                 }
             }
         } catch (error) {
@@ -894,8 +966,9 @@ app.post('/api/verify-api-key', async (req, res) => {
 });
 
 app.post('/api/config', async (req, res) => {
-    const { apiKey, channels } = req.body || {};
+    const { apiKey, channels, extractionLimit } = req.body || {};
     const providedApiKey = String(apiKey || '').trim();
+    const providedLimit = Math.max(5, Math.min(50, parseInt(extractionLimit) || 25));
 
     function deriveNameFromUrl(url) {
         try {
@@ -937,7 +1010,7 @@ app.post('/api/config', async (req, res) => {
         enriched.push({ name, url: ch.url, channelId });
     }
 
-    const conf = { apiKey: providedApiKey, channels: enriched };
+    const conf = { apiKey: providedApiKey, channels: enriched, extractionLimit: providedLimit };
     saveConfig(conf);
     res.json(conf);
 });
@@ -1282,6 +1355,14 @@ function buildFrontendHTML() {
                 </div>
                 
                 <div class="form-group">
+                    <label for="extractionLimit">🎯 Limite di Estrazione:</label>
+                    <input type="number" id="extractionLimit" name="extractionLimit" value="25" min="5" max="50" placeholder="25">
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        Numero massimo di video per ricerca e per stagione nei canali (5-50)
+                    </small>
+                </div>
+                
+                <div class="form-group">
                     <button type="submit" class="btn btn-success">💾 Salva Configurazione</button>
                 </div>
             </form>
@@ -1351,6 +1432,12 @@ function buildFrontendHTML() {
             if (channelsInput) {
                 channelsInput.addEventListener('input', updateManifestUrl);
             }
+            
+            // Extraction limit input
+            const limitInput = document.getElementById('extractionLimit');
+            if (limitInput) {
+                limitInput.addEventListener('input', updateManifestUrl);
+            }
         }
 
         // Carica configurazione dal server
@@ -1361,11 +1448,13 @@ function buildFrontendHTML() {
                     const config = await response.json();
                     const apiKeyEl = document.getElementById('apiKey');
                     const channelsEl = document.getElementById('channels');
+                    const limitEl = document.getElementById('extractionLimit');
                     
                     if (apiKeyEl) apiKeyEl.value = config.apiKey || '';
                     if (channelsEl && config.channels) {
                         channelsEl.value = config.channels.map(function(ch) { return ch.url; }).join(NEWLINE);
                     }
+                    if (limitEl) limitEl.value = config.extractionLimit || 25;
                     
                     updateManifestUrl();
                     checkApiKeyStatus();
@@ -1453,22 +1542,25 @@ function buildFrontendHTML() {
         function updateManifestUrl() {
             const apiKeyEl = document.getElementById('apiKey');
             const channelsEl = document.getElementById('channels');
+            const limitEl = document.getElementById('extractionLimit');
             const manifestEl = document.getElementById('manifestUrl');
             
-            if (!apiKeyEl || !channelsEl || !manifestEl) return;
+            if (!apiKeyEl || !channelsEl || !limitEl || !manifestEl) return;
             
             const apiKey = apiKeyEl.value.trim();
             const channelsText = channelsEl.value.trim();
+            const extractionLimit = parseInt(limitEl.value) || 25;
             
             // Crea configurazione per codifica base64
             let manifestUrl = window.location.origin + '/manifest.json';
             
-            if (apiKey || channelsText) {
+            if (apiKey || channelsText || extractionLimit !== 25) {
                 const configData = {
                     apiKey: apiKey,
                     channels: channelsText ? channelsText.split(NEWLINE)
                         .map(function(line) { return line.trim(); })
-                        .filter(function(line) { return line.length > 0; }) : []
+                        .filter(function(line) { return line.length > 0; }) : [],
+                    extractionLimit: extractionLimit
                 };
                 
                 // Codifica in base64
@@ -1484,6 +1576,7 @@ function buildFrontendHTML() {
         async function saveConfig() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const channelsText = document.getElementById('channels').value.trim();
+            const extractionLimit = parseInt(document.getElementById('extractionLimit').value) || 25;
             
             if (!apiKey) {
                 showStatus('Inserisci API Key di Google YouTube', 'error');
@@ -1511,7 +1604,7 @@ function buildFrontendHTML() {
                 const response = await fetch('/api/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ apiKey: apiKey, channels: channels })
+                    body: JSON.stringify({ apiKey: apiKey, channels: channels, extractionLimit: extractionLimit })
                 });
                 
                 if (response.ok) {
@@ -1522,6 +1615,9 @@ function buildFrontendHTML() {
                         if (result.channels) {
                             document.getElementById('channels').value = 
                                 result.channels.map(function(ch) { return ch.url; }).join(NEWLINE);
+                        }
+                        if (result.extractionLimit) {
+                            document.getElementById('extractionLimit').value = result.extractionLimit;
                         }
                         updateManifestUrl();
                         checkApiKeyStatus();
