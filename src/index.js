@@ -541,7 +541,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
         
-        const baseUrl = 'http://localhost:3100';
+        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         
         // Passa i parametri di configurazione al proxy
         const queryString = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
@@ -705,17 +705,15 @@ app.get('/meta/:type/:id.json', async (req, res) => {
         }
         
         try {
-            // Prima verifica se yt-dlp è disponibile
-            const { checkYtDlpAvailable, getVideoFormats } = require('./lib/yt.js');
-            const ytDlpAvailable = await checkYtDlpAvailable();
+            // Usa l'API YouTube per ottenere i metadati (più veloce e affidabile)
+            const { getVideoMetadata } = require('./lib/youtube.js');
             
-            if (ytDlpAvailable) {
-                // Usa yt-dlp per ottenere informazioni complete del video
-                const videoInfo = await getVideoFormats(videoId);
+            if (config.apiKey) {
+                const videoInfo = await getVideoMetadata(config.apiKey, videoId);
                 
-                // Se yt-dlp restituisce null, usa fallback
+                // Se API YouTube restituisce null, usa fallback
                 if (!videoInfo) {
-                    console.log(`yt-dlp fallito per ${videoId}, uso fallback API YouTube`);
+                    console.log(`API YouTube fallita per ${videoId}, uso fallback semplice`);
                 } else {
                     // Costruisci i metadati nel formato richiesto da Stremio
                     const meta = {
@@ -725,18 +723,18 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                         description: videoInfo.description || 'Video YouTube',
                         poster: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         posterShape: 'landscape',
-                        logo: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        logo: videoInfo.channelThumbnail || videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         background: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         genre: ['YouTube'],
-                        releaseInfo: videoInfo.upload_date ? `${videoInfo.upload_date} (${videoInfo.duration_string || 'N/A'})` : 'YouTube',
-                        director: videoInfo.channel || videoInfo.uploader || 'YouTube',
-                        cast: [videoInfo.channel || videoInfo.uploader || 'YouTube'],
+                        releaseInfo: `${videoInfo.publishedAt} (${videoInfo.duration})`,
+                        director: [videoInfo.channelTitle || 'YouTube'],
+                        cast: [videoInfo.channelTitle || 'YouTube'],
                         country: 'YouTube',
-                        language: videoInfo.language || 'it',
-                        subtitles: videoInfo.subtitles ? Object.keys(videoInfo.subtitles) : [],
-                        year: videoInfo.upload_date ? parseInt(videoInfo.upload_date.substring(0, 4)) : new Date().getFullYear(),
-                        released: videoInfo.upload_date ? `${videoInfo.upload_date.substring(0, 4)}-${videoInfo.upload_date.substring(4, 6)}-${videoInfo.upload_date.substring(6, 8)}` : new Date().toISOString().split('T')[0],
-                        runtime: videoInfo.duration ? Math.floor(videoInfo.duration / 60) : undefined,
+                        language: 'it',
+                        subtitles: [],
+                        year: new Date(videoInfo.publishedAt).getFullYear(),
+                        released: videoInfo.publishedAt,
+                        runtime: videoInfo.duration,
                         links: [
                             {
                                 name: 'YouTube',
@@ -1131,7 +1129,7 @@ app.get('/configure', (req, res) => {
             configParams.set('channels', channelsData);
         }
         
-        const baseUrl = 'http://localhost:3100';
+        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         const configUrl = `${baseUrl}/configure?${configParams.toString()}`;
         
         // Codifica l'URL in base64
@@ -1198,7 +1196,7 @@ app.get('/:encodedConfig/configure', (req, res) => {
             manifestParams.set('channels', channelsData);
         }
         
-        const baseUrl = 'http://localhost:3100';
+        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         const manifestUrl = `${baseUrl}/manifest.json?${manifestParams.toString()}`;
         
         // Restituisci solo i dati JSON, non l'interfaccia HTML

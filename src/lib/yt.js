@@ -23,7 +23,7 @@ async function checkYtDlpAvailable() {
         ytDlp.on('close', (code) => {
             if (code === 0) {
                 const cleanVersion = version.trim();
-                console.log(`✅ yt-dlp disponibile - Versione: ${cleanVersion}`);
+                // console.log(`✅ yt-dlp disponibile - Versione: ${cleanVersion}`); // Disabilitato per evitare spam
                 resolve(true);
             } else {
                 console.log('❌ yt-dlp non disponibile nel sistema');
