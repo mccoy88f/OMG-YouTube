@@ -261,9 +261,9 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 
                 // Log dei primi 3 risultati per debug
                 metas.slice(0, 3).forEach((meta, i) => {
-                    console.log(`   📹 ${i + 1}. ${meta.name} (${meta.id})`);
-                    console.log(`      📺 Canale: ${meta.director}`);
-                    console.log(`      📅 Data: ${meta.releaseInfo}`);
+                    console.log(`   Video ${i + 1}. ${meta.name} (${meta.id})`);
+                    console.log(`      Canale: ${meta.director}`);
+                    console.log(`      Data: ${meta.releaseInfo}`);
                 });
                 
                 res.json({ metas });
@@ -279,8 +279,8 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             
             if (!extra) {
                 // Se non è specificato un canale, restituisci la lista dei canali disponibili
-                console.log('📺 Catalog canali: Lista canali disponibili richiesta');
-                console.log(`   📊 Canali configurati: ${channels.length}`);
+                console.log('Catalog canali: Lista canali disponibili richiesta');
+                console.log(`   Canali configurati: ${channels.length}`);
                 
                 // Stremio può mostrare questo come "seleziona un canale"
                 const availableChannels = channels.map((c) => ({
@@ -316,7 +316,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             
             // Estrai il nome del canale dall'extra
             const chosen = decodeURIComponent(extra);
-            console.log(`📺 Catalog canale specifico richiesto: "${chosen}"`);
+            console.log(`Catalog canale specifico richiesto: "${chosen}"`);
             
             const channel = channels.find((c) => c.name === chosen);
             if (!channel) {
@@ -324,7 +324,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 return res.json({ metas: [] });
             }
             
-            console.log(`   🔗 URL canale: ${channel.url}`);
+            console.log(`   URL canale: ${channel.url}`);
             
             try {
                 const videos = await fetchChannelLatestVideos(channel.url, config.apiKey);
@@ -359,8 +359,8 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 
                 // Log dei primi 3 video per debug
                 metas.slice(0, 3).forEach((meta, i) => {
-                    console.log(`   📹 ${i + 1}. ${meta.name} (${meta.id})`);
-                    console.log(`      📅 Data: ${meta.releaseInfo}`);
+                    console.log(`   Video ${i + 1}. ${meta.name} (${meta.id})`);
+                    console.log(`      Data: ${meta.releaseInfo}`);
                 });
                 
                 res.json({ metas });
@@ -392,9 +392,9 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`🎬 Stream request per video: ${videoId}`);
-        console.log(`   📍 Tipo: ${type}, ID: ${id}`);
-        console.log(`   🔗 URL completo: ${req.originalUrl}`);
+        console.log(`Stream request per video: ${videoId}`);
+        console.log(`   Tipo: ${type}, ID: ${id}`);
+        console.log(`   URL completo: ${req.originalUrl}`);
         
         const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
         
@@ -426,9 +426,9 @@ app.get('/meta/:type/:id.json', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`📋 Meta request per video: ${videoId}`);
-        console.log(`   📍 Tipo: ${type}, ID: ${id}`);
-        console.log(`   🔗 URL completo: ${req.originalUrl}`);
+        console.log(`Meta request per video: ${videoId}`);
+        console.log(`   Tipo: ${type}, ID: ${id}`);
+        console.log(`   URL completo: ${req.originalUrl}`);
         
         // Leggi i parametri di configurazione dall'URL del manifest
         const manifestUrl = req.get('Referer') || req.headers.referer || '';
@@ -650,11 +650,11 @@ app.get('/proxy/:type/:id', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`🚀 Proxy stream request per video: ${videoId}`);
-        console.log(`   📍 Tipo: ${type}, ID: ${id}`);
-        console.log(`   🔗 URL completo: ${req.originalUrl}`);
-        console.log(`   🌐 User-Agent: ${req.get('User-Agent') || 'N/A'}`);
-        console.log(`   📱 Accept: ${req.get('Accept') || 'N/A'}`);
+        console.log(`Proxy stream request per video: ${videoId}`);
+        console.log(`   Tipo: ${type}, ID: ${id}`);
+        console.log(`   URL completo: ${req.originalUrl}`);
+        console.log(`   User-Agent: ${req.get('User-Agent') || 'N/A'}`);
+        console.log(`   Accept: ${req.get('Accept') || 'N/A'}`);
         
         // Imposta gli header per lo streaming video
         res.setHeader('Content-Type', 'video/mp4');
@@ -667,7 +667,7 @@ app.get('/proxy/:type/:id', async (req, res) => {
         
         // Gestisci gli errori dello stream
         videoStream.on('error', (error) => {
-            console.error(`❌ Video stream error per ${videoId}:`, error.message);
+            console.error(`Video stream error per ${videoId}:`, error.message);
             if (!res.headersSent) {
                 res.status(500).json({ error: 'Errore nello streaming del video' });
             } else {
@@ -677,17 +677,17 @@ app.get('/proxy/:type/:id', async (req, res) => {
         
         // Inoltra lo stream alla risposta
         videoStream.pipe(res);
-        console.log(`✅ Stream avviato per ${videoId} - Client connesso`);
+        console.log(`Stream avviato per ${videoId} - Client connesso`);
         
         // Gestisci la chiusura della connessione
         req.on('close', () => {
-            console.log(`🔌 Client disconnesso per video: ${videoId}`);
+            console.log(`Client disconnesso per video: ${videoId}`);
             videoStream.destroy();
         });
         
         // Gestisci la fine della risposta
         res.on('finish', () => {
-            console.log(`✅ Stream completato per ${videoId} - Risposta inviata`);
+            console.log(`Stream completato per ${videoId} - Risposta inviata`);
         });
         
     } catch (error) {
@@ -1143,8 +1143,8 @@ app.get('/', (req, res) => {
                 <p>• Compatibile con tutti i formati YouTube</p>
             </div>
 
-            <div id="yt-dlp-status" class="info-box">
-                <h3>🔧 Stato yt-dlp</h3>
+            <div id="api-status" class="info-box">
+                <h3>🔑 Stato API Key</h3>
                 <p>Caricamento stato...</p>
             </div>
 
@@ -1201,6 +1201,18 @@ app.get('/', (req, res) => {
         // Carica la configurazione all'avvio
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
+            
+            // Aggiungi listener per il campo API Key
+            const apiKeyInput = document.getElementById('apiKey');
+            if (apiKeyInput) {
+                apiKeyInput.addEventListener('input', function() {
+                    // Debounce per evitare troppe chiamate
+                    clearTimeout(window.apiKeyTimeout);
+                    window.apiKeyTimeout = setTimeout(async () => {
+                        await checkApiKeyStatus();
+                    }, 1000);
+                });
+            }
         });
 
         // Carica la configurazione dal server
@@ -1210,12 +1222,52 @@ app.get('/', (req, res) => {
                 if (response.ok) {
                     const config = await response.json();
                     document.getElementById('apiKey').value = config.apiKey || '';
-                    document.getElementById('channels').value = config.channels ? config.channels.map(ch => ch.url).join('\\n') : '';
+                    document.getElementById('channels').value = config.channels ? config.channels.map(ch => ch.url).join('\n') : '';
                     // Aggiorna l'URL del manifest con i nuovi parametri
                     updateManifestUrl();
+                    // Verifica lo stato dell'API Key
+                    await checkApiKeyStatus();
                 }
             } catch (error) {
                 console.error('Errore nel caricamento della configurazione:', error);
+            }
+        }
+
+        // Controlla lo stato dell'API Key
+        async function checkApiKeyStatus() {
+            const apiKeyInput = document.getElementById('apiKey').value.trim();
+            const statusElement = document.getElementById('api-status');
+            
+            if (!apiKeyInput) {
+                statusElement.innerHTML = 
+                    '<h3>🔑 Stato API Key</h3>' +
+                    '<p style="color: #ff6b6b;">❌ Nessuna API Key configurata</p>' +
+                    '<p>Inserisci la tua API Key di Google YouTube per utilizzare l\'addon.</p>';
+                return;
+            }
+            
+            statusElement.innerHTML = 
+                '<h3>🔑 Stato API Key</h3>' +
+                '<p style="color: #ffa500;">🔍 Verifica in corso...</p>';
+            
+            try {
+                const verification = await verifyApiKey(apiKeyInput);
+                if (verification.valid) {
+                    statusElement.innerHTML = 
+                        '<h3>🔑 Stato API Key</h3>' +
+                        '<p style="color: #4ecdc4;">✅ API Key valida e funzionante</p>' +
+                        '<p>Quota disponibile: ' + (verification.quota || 'Informazione non disponibile') + '</p>';
+                } else {
+                    statusElement.innerHTML = 
+                        '<h3>🔑 Stato API Key</h3>' +
+                        '<p style="color: #ff6b6b;">❌ API Key non valida</p>' +
+                        '<p>' + (verification.message || 'Errore nella verifica') + '</p>';
+                }
+            } catch (error) {
+                statusElement.innerHTML = 
+                    '<h3>🔑 Stato API Key</h3>' +
+                    '<p style="color: #ff6b6b;">❌ Errore nella verifica</p>' +
+                    '<p>Impossibile verificare l\'API Key. Controlla la connessione.</p>';
             }
         }
 
@@ -1252,8 +1304,8 @@ app.get('/', (req, res) => {
             const params = new URLSearchParams();
             if (apiKey) params.set('apiKey', apiKey);
             if (channelsText) {
-                const channels = channelsText.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
-                params.set('channels', channels.join('\\n'));
+                const channels = channelsText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+                params.set('channels', channels.join('\n'));
             }
             
             const manifestUrl = params.toString() ? 
@@ -1284,7 +1336,7 @@ app.get('/', (req, res) => {
             
             showStatus('✅ API Key verificata, salvataggio configurazione...', 'success');
             
-            const channels = channelsText.split('\\n')
+            const channels = channelsText.split('\n')
                 .map(line => line.trim())
                 .filter(line => line.length > 0)
                 .map(url => ({ url, name: extractChannelName(url) }));
@@ -1301,12 +1353,14 @@ app.get('/', (req, res) => {
                 if (response.ok) {
                     const result = await response.json();
                     if (result.apiKey || result.channels) {
-                        showStatus('Configurazione salvata con successo!', 'success');
+                        showStatus('✅ Configurazione salvata e API Key verificata!', 'success');
                         // Ricarica i campi per mostrare i dati salvati
                         document.getElementById('apiKey').value = result.apiKey || '';
-                        document.getElementById('channels').value = result.channels ? result.channels.map(ch => ch.url).join('\\n') : '';
+                        document.getElementById('channels').value = result.channels ? result.channels.map(ch => ch.url).join('\n') : '';
                         // Aggiorna l'URL del manifest
                         updateManifestUrl();
+                        // Aggiorna lo stato dell'API Key
+                        await checkApiKeyStatus();
                     } else {
                         showStatus('Errore nel salvataggio della configurazione', 'error');
                     }
@@ -1374,8 +1428,8 @@ app.get('/', (req, res) => {
             configParams.set('apiKey', apiKey);
             
             if (channelsText) {
-                const channels = channelsText.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
-                configParams.set('channels', channels.join('\\n'));
+                const channels = channelsText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+                configParams.set('channels', channels.join('\n'));
             }
             
             const configUrl = baseUrl + '/configure?' + configParams.toString();
@@ -1408,9 +1462,10 @@ app.get('/', (req, res) => {
         // Installa in Stremio
         function installInStremio() {
             const manifestUrl = document.getElementById('manifestUrl').textContent;
-            const stremioUrl = 'stremio://' + window.location.host + '/manifest.json';
+            // Rimuove il protocollo http/https per creare il link stremio://
+            const stremioUrl = manifestUrl.replace(/^https?:\/\//, 'stremio://');
             window.open(stremioUrl, '_blank');
-            showStatus('Apertura Stremio...', 'success');
+            showStatus('Tentativo di apertura in Stremio... Se non si apre, copia l\'URL del manifest manualmente.', 'success');
         }
 
         // Gestisce l'invio del form
