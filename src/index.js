@@ -1125,7 +1125,7 @@ app.get('/:encodedConfig/configure', (req, res) => {
         // Installa in Stremio
         function installInStremio() {
             const manifestUrl = document.getElementById('manifestUrl').textContent;
-            const stremioUrl = \`stremio://\${window.location.host}/manifest.json\`;
+            const stremioUrl = 'stremio://' + window.location.host + '/manifest.json';
             window.open(stremioUrl, '_blank');
             alert('Apertura Stremio...');
         }
@@ -1441,39 +1441,36 @@ app.get('/', (req, res) => {
                     const statusDiv = document.getElementById('yt-dlp-status');
                     
                     if (status.available) {
-                        statusDiv.innerHTML = \`
-                            <h3>✅ yt-dlp Disponibile</h3>
-                            <p>yt-dlp è installato e funzionante correttamente.</p>
-                            <p>• Streaming diretto: <strong>Disponibile</strong></p>
-                            <p>• Metadati completi: <strong>Disponibili</strong></p>
-                            <p>• Qualità video: <strong>Ottimale</strong></p>
-                        \`;
+                        statusDiv.innerHTML = 
+                            '<h3>✅ yt-dlp Disponibile</h3>' +
+                            '<p>yt-dlp è installato e funzionante correttamente.</p>' +
+                            '<p>• Streaming diretto: <strong>Disponibile</strong></p>' +
+                            '<p>• Metadati completi: <strong>Disponibili</strong></p>' +
+                            '<p>• Qualità video: <strong>Ottimale</strong></p>';
                         statusDiv.className = 'info-box';
                     } else {
-                        statusDiv.innerHTML = \`
-                            <h3>❌ yt-dlp Non Disponibile</h3>
-                            <p>yt-dlp non è installato o non funziona correttamente.</p>
-                            <p>• Streaming diretto: <strong>Non disponibile</strong></p>
-                            <p>• Metadati: <strong>Limitati (solo API YouTube)</strong></p>
-                            <p><strong>Per installare yt-dlp:</strong></p>
-                            <ul>
-                                <li><strong>macOS:</strong> <code>brew install yt-dlp</code></li>
-                                <li><strong>Ubuntu/Debian:</strong> <code>sudo apt install yt-dlp</code></li>
-                                <li><strong>Windows:</strong> <code>pip install yt-dlp</code></li>
-                                <li><strong>Docker:</strong> <code>docker run --rm -it yt-dlp/yt-dlp --version</code></li>
-                            </ul>
-                        \`;
+                        statusDiv.innerHTML = 
+                            '<h3>❌ yt-dlp Non Disponibile</h3>' +
+                            '<p>yt-dlp non è installato o non funziona correttamente.</p>' +
+                            '<p>• Streaming diretto: <strong>Non disponibile</strong></p>' +
+                            '<p>• Metadati: <strong>Limitati (solo API YouTube)</strong></p>' +
+                            '<p><strong>Per installare yt-dlp:</strong></p>' +
+                            '<ul>' +
+                                '<li><strong>macOS:</strong> <code>brew install yt-dlp</code></li>' +
+                                '<li><strong>Ubuntu/Debian:</strong> <code>sudo apt install yt-dlp</code></li>' +
+                                '<li><strong>Windows:</strong> <code>pip install yt-dlp</code></li>' +
+                                '<li><strong>Docker:</strong> <code>docker run --rm -it yt-dlp/yt-dlp --version</code></li>' +
+                            '</ul>';
                         statusDiv.className = 'important-note';
                     }
                 }
             } catch (error) {
                 console.error('Errore nel controllo dello stato di yt-dlp:', error);
                 const statusDiv = document.getElementById('yt-dlp-status');
-                statusDiv.innerHTML = \`
-                    <h3>⚠️ Errore nel Controllo</h3>
-                    <p>Impossibile verificare lo stato di yt-dlp.</p>
-                    <p>Errore: \${error.message}</p>
-                \`;
+                statusDiv.innerHTML = 
+                    '<h3>⚠️ Errore nel Controllo</h3>' +
+                    '<p>Impossibile verificare lo stato di yt-dlp.</p>' +
+                    '<p>Errore: ' + error.message + '</p>';
                 statusDiv.className = 'important-note';
             }
         }
@@ -1514,8 +1511,8 @@ app.get('/', (req, res) => {
             }
             
             const manifestUrl = params.toString() ? 
-                \`\${window.location.origin}/manifest.json?\${params.toString()}\` : 
-                \`\${window.location.origin}/manifest.json\`;
+                window.location.origin + '/manifest.json?' + params.toString() : 
+                window.location.origin + '/manifest.json';
             
             document.getElementById('manifestUrl').textContent = manifestUrl;
         }
@@ -1535,7 +1532,7 @@ app.get('/', (req, res) => {
             const verification = await verifyApiKey(apiKey);
             
             if (!verification.valid) {
-                showStatus(`❌ ${verification.message}`, 'error');
+                showStatus('❌ ' + verification.message, 'error');
                 return;
             }
             
@@ -1597,7 +1594,7 @@ app.get('/', (req, res) => {
         // Mostra messaggi di stato
         function showStatus(message, type) {
             const statusDiv = document.getElementById('status');
-            statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
+            statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
             setTimeout(() => {
                 statusDiv.innerHTML = '';
             }, 5000);
@@ -1635,7 +1632,7 @@ app.get('/', (req, res) => {
                 configParams.set('channels', channels.join('\\n'));
             }
             
-            const configUrl = \`\${baseUrl}/configure?\${configParams.toString()}\`;
+            const configUrl = baseUrl + '/configure?' + configParams.toString();
             
             // Genera l'URL codificato
             fetch(configUrl)
@@ -1665,7 +1662,7 @@ app.get('/', (req, res) => {
         // Installa in Stremio
         function installInStremio() {
             const manifestUrl = document.getElementById('manifestUrl').textContent;
-            const stremioUrl = \`stremio://\${window.location.host}/manifest.json\`;
+            const stremioUrl = 'stremio://' + window.location.host + '/manifest.json';
             window.open(stremioUrl, '_blank');
             showStatus('Apertura Stremio...', 'success');
         }
