@@ -480,8 +480,8 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     background: video.thumbnail,
                     genre: ['YouTube'],
                     releaseInfo: video.publishedAt,
-                    season: 1,
-                    episode: index + 1,
+                    season: 1, // Prima stagione per ora
+                    episode: index + 1, // Numero episodio sequenziale
                     director: channelInfo.channelTitle || video.channelTitle,
                     cast: [channelInfo.channelTitle || video.channelTitle],
                     country: 'YouTube',
@@ -571,8 +571,12 @@ app.get('/meta/:type/:id.json', async (req, res) => {
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
         
-        // Inizializza configurazione
+        // Leggi i parametri di configurazione dall'URL del manifest
+        const manifestUrl = req.get('Referer') || req.headers.referer || '';
         let config = { apiKey: '', channels: [], extractionLimit: 25 };
+        
+        console.log(`   📋 Manifest URL: ${manifestUrl}`);
+        console.log(`   📋 Query string: ${req.originalUrl}`);
         
         // Prima prova a leggere dalla query string corrente
         if (req.query.config) {
@@ -580,7 +584,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                 const configJson = Buffer.from(req.query.config, 'base64').toString('utf8');
                 const configData = JSON.parse(configJson);
                 
-                console.log(`   ✅ Configurazione base64 decodificata diretta`);
+                console.log(`   ✅ Configurazione base64 decodificata:`, configData);
                 
                 if (configData.apiKey) {
                     config.apiKey = configData.apiKey;
@@ -601,14 +605,11 @@ app.get('/meta/:type/:id.json', async (req, res) => {
             }
         }
         
-        // Leggi i parametri di configurazione dall'URL del manifest
-        const manifestUrl = req.get('Referer') || req.headers.referer || '';
-        
-        console.log(`   📋 Manifest URL: ${manifestUrl}`);
-        
-        try {
-            // Estrai parametri dall'URL del manifest
-            if (manifestUrl.includes('manifest.json')) {
+        // Se non ha funzionato, prova dal referer
+        if (!config.apiKey) {
+            try {
+                // Estrai parametri dall'URL del manifest
+                if (manifestUrl.includes('manifest.json')) {
                 const urlObj = new URL(manifestUrl);
                 
                 // Prima prova a decodificare configurazione base64
@@ -729,10 +730,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                 console.log('yt-dlp non disponibile, uso fallback API YouTube');
             }
             
-        } catch (error) {
-            console.error('Meta error with yt-dlp:', error.message);
-            
-            // Fallback: prova a usare l'API di YouTube se yt-dlp fallisce
+            // Fallback con API YouTube se yt-dlp non è disponibile o fallisce
             try {
                 const { searchVideoById } = require('./lib/youtube');
                 
@@ -836,8 +834,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                 
                 res.json({ meta: minimalMeta });
             }
-        }
-        
+            
     } catch (error) {
         console.error('Meta endpoint error:', error.message);
         res.status(500).json({ error: 'Errore nel recupero dei metadati' });
