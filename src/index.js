@@ -198,32 +198,30 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     try {
         const { type, id, extra } = req.params;
         
-        // Leggi i parametri di configurazione dall'URL del manifest
-        const manifestUrl = req.get('Referer') || req.headers.referer || '';
+        // Leggi i parametri di configurazione dai query parameters dell'URL della richiesta
         let config = { apiKey: '', channels: [] };
         
-        try {
-            // Estrai parametri dall'URL del manifest
-            if (manifestUrl.includes('manifest.json')) {
-                const urlObj = new URL(manifestUrl);
-                const apiKey = urlObj.searchParams.get('apiKey');
-                const channelsParam = urlObj.searchParams.get('channels');
-                
-                if (apiKey) {
-                    config.apiKey = apiKey;
-                }
-                
-                if (channelsParam) {
-                    const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
-                    config.channels = channelUrls.map(url => ({ 
-                        url, 
-                        name: extractChannelNameFromUrl(url) 
-                    }));
-                }
-            }
-        } catch (error) {
-            console.log('Fallback to server config for catalog');
-            // Fallback alla configurazione del server se non riesci a leggere dall'URL
+        // Prima prova ad estrarre dai query parameters diretti
+        const apiKey = req.query.apiKey;
+        const channelsParam = req.query.channels;
+        
+        if (apiKey) {
+            config.apiKey = apiKey;
+        }
+        
+        if (channelsParam) {
+            // Decodifica URL-encoded channels parameter
+            const decodedChannels = decodeURIComponent(channelsParam);
+            const channelUrls = decodedChannels.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+            config.channels = channelUrls.map(url => ({ 
+                url, 
+                name: extractChannelNameFromUrl(url) 
+            }));
+        }
+        
+        // Se non troviamo parametri URL, fallback alla configurazione del server
+        if (!config.apiKey && !config.channels.length) {
+            console.log('   📝 Nessun parametro URL trovato, uso configurazione server');
             config = loadConfig();
         }
         
@@ -238,6 +236,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             console.log(`🔍 Ricerca catalog richiesta: "${searchQuery}"`);
             console.log(`   📍 Tipo: ${type}, ID: ${id}`);
             console.log(`   🔑 API Key configurata: ${config.apiKey ? 'Sì' : 'No'}`);
+            console.log(`   📺 Canali configurati: ${config.channels.length}`);
             
             try {
                 const videos = await searchVideos(searchQuery, config.apiKey);
@@ -326,8 +325,15 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             }
             
             // Estrai il nome del canale dall'extra
-            const chosen = decodeURIComponent(extra);
-            console.log(`Catalog canale specifico richiesto: "${chosen}"`);
+            const decodedExtra = decodeURIComponent(extra);
+            console.log(`Catalog canale specifico richiesto: "${decodedExtra}"`);
+            
+            // Se il parametro è nel formato "genre=channelname", estrai solo il nome del canale
+            let chosen = decodedExtra;
+            if (decodedExtra.includes('genre=')) {
+                chosen = decodedExtra.split('genre=')[1];
+            }
+            console.log(`   🔍 Cerco canale: "${chosen}"`);
             
             const channel = channels.find((c) => c.name === chosen);
             if (!channel) {
