@@ -285,7 +285,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             console.log(`   📺 Canali configurati: ${config.channels.length}`);
             
             try {
-                const videos = await searchVideos(searchQuery, config.apiKey);
+                const videos = await searchVideos({ apiKey: config.apiKey, query: searchQuery, maxResults: 50 });
                 console.log(`✅ Ricerca completata: ${videos.length} video trovati`);
                 
                 const metas = videos.map(video => ({
@@ -338,16 +338,32 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 console.log('Catalog canali: Lista canali disponibili richiesta');
                 console.log(`   Canali configurati: ${channels.length}`);
                 
+                // Recupera informazioni per tutti i canali
+                const channelInfoPromises = channels.map(async (c) => {
+                    try {
+                        const channelId = await getChannelIdFromInput({ apiKey: config.apiKey, input: c.url });
+                        if (channelId) {
+                            const channelInfo = await fetchChannelTitleAndThumb({ apiKey: config.apiKey, channelId });
+                            return { ...c, ...channelInfo };
+                        }
+                    } catch (error) {
+                        console.log(`❌ Errore recupero info canale ${c.name}:`, error.message);
+                    }
+                    return c;
+                });
+                
+                const channelsWithInfo = await Promise.all(channelInfoPromises);
+                
                 // Stremio può mostrare questo come "seleziona un canale"
-                const availableChannels = channels.map((c) => ({
+                const availableChannels = channelsWithInfo.map((c) => ({
                     id: `genre_${c.name}`,
                     type: 'channel',
-                    name: c.name,
-                    description: `Canale: ${c.name}`,
-                    poster: c.thumbnail || 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+                    name: c.channelTitle || c.name,
+                    description: `Canale: ${c.channelTitle || c.name}`,
+                    poster: c.channelThumbnail || 'http://localhost:3100/favicon.png',
                     posterShape: 'square',
-                    logo: c.thumbnail || 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
-                    background: c.thumbnail || 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+                    logo: c.channelThumbnail || 'http://localhost:3100/favicon.png',
+                    background: c.channelThumbnail || 'http://localhost:3100/favicon.png',
                     genre: ['YouTube'],
                     releaseInfo: 'Canale seguito',
                     director: c.name,
@@ -390,8 +406,23 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             console.log(`   URL canale: ${channel.url}`);
             
             try {
-                const videos = await fetchChannelLatestVideos(channel.url, config.apiKey);
+                // Prima ottieni l'ID del canale dall'URL
+                const channelId = await getChannelIdFromInput({ apiKey: config.apiKey, input: channel.url });
+                if (!channelId) {
+                    console.log(`❌ Impossibile ottenere ID canale da: ${channel.url}`);
+                    return res.json({ metas: [] });
+                }
+                
+                console.log(`   📺 ID canale: ${channelId}`);
+                
+                // Poi recupera i video e le info del canale
+                const [videos, channelInfo] = await Promise.all([
+                    fetchChannelLatestVideos({ apiKey: config.apiKey, channelId, maxResults: 50 }),
+                    fetchChannelTitleAndThumb({ apiKey: config.apiKey, channelId })
+                ]);
+                
                 console.log(`✅ Video canale recuperati: ${videos.length} video`);
+                console.log(`✅ Info canale recuperate: ${channelInfo.channelTitle}`);
                 
                 const metas = videos.map(video => ({
                     id: `yt_${video.id}`,
@@ -400,12 +431,12 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     description: video.description,
                     poster: video.thumbnail,
                     posterShape: 'landscape',
-                    logo: video.channelThumbnail,
+                    logo: channelInfo.channelThumbnail || video.thumbnail,
                     background: video.thumbnail,
                     genre: ['YouTube'],
                     releaseInfo: video.publishedAt,
-                    director: video.channelTitle,
-                    cast: [video.channelTitle],
+                    director: channelInfo.channelTitle || video.channelTitle,
+                    cast: [channelInfo.channelTitle || video.channelTitle],
                     country: 'YouTube',
                     language: 'it',
                     subtitles: [],
