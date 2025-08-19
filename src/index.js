@@ -25,18 +25,20 @@ function buildManifest() {
     
     const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
     
-    // Costruisci URL di configurazione per Stremio con parametri
-    const configParams = new URLSearchParams();
-    if (config.apiKey) configParams.set('apiKey', config.apiKey);
-    if (config.channels && config.channels.length > 0) {
-        const channelsData = config.channels.map(ch => ch.url).join('\n');
-        configParams.set('channels', channelsData);
-    }
+    // Costruisci configurazione codificata in base64 per Stremio
+    let manifestUrl = `${baseUrl}/manifest.json`;
     
-    // URL del manifest con parametri di configurazione
-    const manifestUrl = configParams.toString() ? 
-        `${baseUrl}/manifest.json?${configParams.toString()}` : 
-        `${baseUrl}/manifest.json`;
+    if (config.apiKey || (config.channels && config.channels.length > 0)) {
+        const configData = {
+            apiKey: config.apiKey || '',
+            channels: config.channels ? config.channels.map(ch => ch.url) : []
+        };
+        
+        // Codifica la configurazione in base64
+        const configJson = JSON.stringify(configData);
+        const configBase64 = Buffer.from(configJson, 'utf8').toString('base64');
+        manifestUrl = `${baseUrl}/manifest.json?config=${configBase64}`;
+    }
     
     return {
         id: 'com.omg.youtube',
@@ -58,7 +60,7 @@ function buildManifest() {
             {
                 type: 'channel',
                 id: 'omg-youtube-followed',
-                name: 'Canali Seguiti',
+                name: 'YouTube',
                 extra: [
                     { name: 'genre', isRequired: false, options: channelNames }
                 ]
@@ -87,22 +89,44 @@ function buildManifest() {
 app.get('/manifest.json', (req, res) => {
     try {
         // Leggi i parametri di configurazione dall'URL
-        const apiKey = req.query.apiKey;
-        const channelsParam = req.query.channels;
-        
-        // Costruisci configurazione temporanea dai parametri URL
         let tempConfig = { apiKey: '', channels: [] };
         
-        if (apiKey) {
-            tempConfig.apiKey = apiKey;
-        }
-        
-        if (channelsParam) {
-            const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
-            tempConfig.channels = channelUrls.map(url => ({ 
-                url, 
-                name: extractChannelNameFromUrl(url) 
-            }));
+        // Supporto per configurazione base64 (nuovo formato)
+        const configBase64 = req.query.config;
+        if (configBase64) {
+            try {
+                const configJson = Buffer.from(configBase64, 'base64').toString('utf8');
+                const configData = JSON.parse(configJson);
+                
+                if (configData.apiKey) {
+                    tempConfig.apiKey = configData.apiKey;
+                }
+                
+                if (configData.channels && Array.isArray(configData.channels)) {
+                    tempConfig.channels = configData.channels.map(url => ({
+                        url,
+                        name: extractChannelNameFromUrl(url)
+                    }));
+                }
+            } catch (error) {
+                console.log('Errore decodifica configurazione base64:', error.message);
+            }
+        } else {
+            // Fallback per formato legacy (parametri URL diretti)
+            const apiKey = req.query.apiKey;
+            const channelsParam = req.query.channels;
+            
+            if (apiKey) {
+                tempConfig.apiKey = apiKey;
+            }
+            
+            if (channelsParam) {
+                const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+                tempConfig.channels = channelUrls.map(url => ({ 
+                    url, 
+                    name: extractChannelNameFromUrl(url) 
+                }));
+            }
         }
         
         // Genera manifest dinamico con la configurazione temporanea
@@ -162,7 +186,7 @@ function buildManifestFromConfig(config) {
             {
                 type: 'channel',
                 id: 'omg-youtube-followed',
-                name: 'Canali Seguiti',
+                name: 'YouTube',
                 extra: [
                     { name: 'genre', isRequired: false, options: channelNames }
                 ]
@@ -201,22 +225,44 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
         // Leggi i parametri di configurazione dai query parameters dell'URL della richiesta
         let config = { apiKey: '', channels: [] };
         
-        // Prima prova ad estrarre dai query parameters diretti
-        const apiKey = req.query.apiKey;
-        const channelsParam = req.query.channels;
-        
-        if (apiKey) {
-            config.apiKey = apiKey;
-        }
-        
-        if (channelsParam) {
-            // Decodifica URL-encoded channels parameter
-            const decodedChannels = decodeURIComponent(channelsParam);
-            const channelUrls = decodedChannels.split('\n').map(url => url.trim()).filter(url => url.length > 0);
-            config.channels = channelUrls.map(url => ({ 
-                url, 
-                name: extractChannelNameFromUrl(url) 
-            }));
+        // Supporto per configurazione base64 (nuovo formato)
+        const configBase64 = req.query.config;
+        if (configBase64) {
+            try {
+                const configJson = Buffer.from(configBase64, 'base64').toString('utf8');
+                const configData = JSON.parse(configJson);
+                
+                if (configData.apiKey) {
+                    config.apiKey = configData.apiKey;
+                }
+                
+                if (configData.channels && Array.isArray(configData.channels)) {
+                    config.channels = configData.channels.map(url => ({
+                        url,
+                        name: extractChannelNameFromUrl(url)
+                    }));
+                }
+            } catch (error) {
+                console.log('   ❌ Errore decodifica configurazione base64:', error.message);
+            }
+        } else {
+            // Fallback per formato legacy (parametri URL diretti)
+            const apiKey = req.query.apiKey;
+            const channelsParam = req.query.channels;
+            
+            if (apiKey) {
+                config.apiKey = apiKey;
+            }
+            
+            if (channelsParam) {
+                // Decodifica URL-encoded channels parameter
+                const decodedChannels = decodeURIComponent(channelsParam);
+                const channelUrls = decodedChannels.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+                config.channels = channelUrls.map(url => ({ 
+                    url, 
+                    name: extractChannelNameFromUrl(url) 
+                }));
+            }
         }
         
         // Se non troviamo parametri URL, fallback alla configurazione del server
@@ -1382,18 +1428,22 @@ function buildFrontendHTML() {
             const apiKey = apiKeyEl.value.trim();
             const channelsText = channelsEl.value.trim();
             
-            const params = new URLSearchParams();
-            if (apiKey) params.set('apiKey', apiKey);
-            if (channelsText) {
-                const channels = channelsText.split(NEWLINE)
-                    .map(function(line) { return line.trim(); })
-                    .filter(function(line) { return line.length > 0; });
-                params.set('channels', channels.join(NEWLINE));
-            }
+            // Crea configurazione per codifica base64
+            let manifestUrl = window.location.origin + '/manifest.json';
             
-            const manifestUrl = params.toString() ? 
-                window.location.origin + '/manifest.json?' + params.toString() : 
-                window.location.origin + '/manifest.json';
+            if (apiKey || channelsText) {
+                const configData = {
+                    apiKey: apiKey,
+                    channels: channelsText ? channelsText.split(NEWLINE)
+                        .map(function(line) { return line.trim(); })
+                        .filter(function(line) { return line.length > 0; }) : []
+                };
+                
+                // Codifica in base64
+                const configJson = JSON.stringify(configData);
+                const configBase64 = btoa(unescape(encodeURIComponent(configJson)));
+                manifestUrl = window.location.origin + '/manifest.json?config=' + configBase64;
+            }
             
             manifestEl.textContent = manifestUrl;
         }
