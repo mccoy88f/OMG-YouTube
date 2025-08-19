@@ -56,7 +56,7 @@ async function getStreamUrlForVideo(videoId) {
     return new Promise((resolve, reject) => {
         const ytDlp = spawn('yt-dlp', [
             '-g',
-            '-f', 'best[height<=2160]/best[height<=1440]/best[height<=1080]/best',
+            '-f', 'best',
             '--no-playlist',
             '--extractor-args', 'youtube:player_client=android',
             '--force-generic-extractor',
@@ -112,7 +112,7 @@ async function getStreamUrlForVideo(videoId) {
  * @param {string} quality - Formato qualità per yt-dlp (default: best)
  * @returns {Promise<Readable>} Stream leggibile
  */
-async function createVideoStreamWithQuality(videoId, quality = 'best[height<=2160]/best[height<=1440]/best[height<=1080]/best') {
+async function createVideoStreamWithQuality(videoId, quality = 'best') {
     const isAvailable = await checkYtDlpAvailable();
     if (!isAvailable) {
         throw new Error('yt-dlp non è installato o non disponibile');

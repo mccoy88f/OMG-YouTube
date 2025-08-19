@@ -541,7 +541,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
         
-        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+        const baseUrl = 'http://localhost:3100';
         
         // Passa i parametri di configurazione al proxy
         const queryString = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
@@ -550,6 +550,14 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             `${baseUrl}/proxy/${type}/${id}`;
         
         console.log(`   🎬 Proxy URL generato: ${proxyUrl}`);
+        
+        // URLs per le diverse qualità
+        const url1080 = queryString ? 
+            `${baseUrl}/proxy-1080/${type}/${id}?${queryString}` : 
+            `${baseUrl}/proxy-1080/${type}/${id}`;
+        const url720 = queryString ? 
+            `${baseUrl}/proxy-720/${type}/${id}?${queryString}` : 
+            `${baseUrl}/proxy-720/${type}/${id}`;
         
         // Restituisci multiple opzioni di qualità
         res.json({
@@ -562,14 +570,14 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                     format: 'hls'
                 },
                 {
-                    url: proxyUrl.replace('/proxy/', '/proxy-1080/'),
+                    url: url1080,
                     title: '📺 OMG YouTube - Full HD (1080p)',
                     ytId: videoId,
                     quality: '1080p',
                     format: 'hls'
                 },
                 {
-                    url: proxyUrl.replace('/proxy/', '/proxy-720/'),
+                    url: url720,
                     title: '📱 OMG YouTube - HD (720p)',
                     ytId: videoId,
                     quality: '720p',
@@ -874,16 +882,16 @@ app.get('/meta/:type/:id.json', async (req, res) => {
 
 // Endpoint proxy per diverse qualità
 app.get('/proxy-1080/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=1080]/best');
+    return handleProxyStream(req, res, 'best[height<=1080]');
 });
 
 app.get('/proxy-720/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=720]/best');
+    return handleProxyStream(req, res, 'best[height<=720]');
 });
 
 // Nuovo endpoint per streaming proxy diretto (qualità massima)
 app.get('/proxy/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=2160]/best[height<=1440]/best[height<=1080]/best');
+    return handleProxyStream(req, res, 'best');
 });
 
 // Funzione condivisa per gestire il proxy streaming
@@ -1123,7 +1131,7 @@ app.get('/configure', (req, res) => {
             configParams.set('channels', channelsData);
         }
         
-        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+        const baseUrl = 'http://localhost:3100';
         const configUrl = `${baseUrl}/configure?${configParams.toString()}`;
         
         // Codifica l'URL in base64
@@ -1190,7 +1198,7 @@ app.get('/:encodedConfig/configure', (req, res) => {
             manifestParams.set('channels', channelsData);
         }
         
-        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+        const baseUrl = 'http://localhost:3100';
         const manifestUrl = `${baseUrl}/manifest.json?${manifestParams.toString()}`;
         
         // Restituisci solo i dati JSON, non l'interfaccia HTML
