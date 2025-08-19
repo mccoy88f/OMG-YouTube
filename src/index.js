@@ -1080,26 +1080,25 @@ app.get('/:encodedConfig/configure', (req, res) => {
 
             <div class="config-summary">
                 <h3>📋 Riepilogo Configurazione</h3>
-                <p><strong>API Key:</strong> ${config.apiKey ? '✅ Configurata' : '❌ Non configurata'}</p>
-                <p><strong>Canali:</strong> ${config.channels.length} canali configurati</p>
-                ${config.channels.length > 0 ? '<p><strong>Canali:</strong></p><ul>' + config.channels.map(ch => `<li>${ch.name || ch.url}</li>`).join('') + '</ul>' : ''}
+                <p><strong>API Key:</strong> Configurazione dinamica</p>
+                <p><strong>Canali:</strong> Configurazione dinamica</p>
             </div>
             
             <div class="url-display">
                 <h4>📋 URL Manifest (per Stremio)</h4>
-                <div class="url" id="manifestUrl">${manifestUrl}</div>
+                <div class="url" id="manifestUrl">http://localhost:3100/manifest.json</div>
                 <button class="copy-btn" onclick="copyManifest()">Copia</button>
             </div>
             
             <div class="url-display">
                 <h4>🔗 URL Configurazione (per condivisione)</h4>
-                <div class="url" id="configUrl">${req.originalUrl}</div>
+                <div class="url" id="configUrl">http://localhost:3100/configure</div>
                 <button class="copy-btn" onclick="copyConfigUrl()">Copia</button>
             </div>
             
             <div style="text-align: center; margin-top: 30px;">
                 <button class="btn btn-success" onclick="installInStremio()">📱 Installa in Stremio</button>
-                <button class="btn" onclick="window.open('${baseUrl}/', '_blank')">⚙️ Modifica Configurazione</button>
+                <button class="btn" onclick="window.open('http://localhost:3100/', '_blank')">⚙️ Modifica Configurazione</button>
             </div>
         </div>
     </div>
@@ -1155,8 +1154,8 @@ app.get('/', (req, res) => {
     }
     
     const manifestUrl = manifestParams.toString() ? 
-        `${baseUrl}/manifest.json?${manifestParams.toString()}` : 
-        `${baseUrl}/manifest.json`;
+        `http://localhost:3100/manifest.json?${manifestParams.toString()}` : 
+        `http://localhost:3100/manifest.json`;
     
     res.send(`
 <!DOCTYPE html>
@@ -1350,7 +1349,7 @@ app.get('/', (req, res) => {
             <div class="info-box">
                 <h3>🚀 Streaming Diretto Implementato</h3>
                 <p>Questo addon ora usa yt-dlp per streammare video direttamente a Stremio!</p>
-                <p>• Endpoint proxy: <code>${baseUrl}/proxy</code></p>
+                <p>• Endpoint proxy: <code>http://localhost:3100/proxy</code></p>
                 <p>• Streaming in tempo reale senza download</p>
                 <p>• Compatibile con tutti i formati YouTube</p>
             </div>
@@ -1370,12 +1369,12 @@ app.get('/', (req, res) => {
             <form id="configForm">
                 <div class="form-group">
                     <label for="apiKey">🔑 API Key Google YouTube:</label>
-                    <input type="text" id="apiKey" name="apiKey" value="${config.apiKey || ''}" placeholder="Inserisci la tua API Key di Google YouTube">
+                    <input type="text" id="apiKey" name="apiKey" value="" placeholder="Inserisci la tua API Key di Google YouTube">
                 </div>
                 
                 <div class="form-group">
                     <label for="channels">📺 Canali YouTube Seguiti (uno per riga):</label>
-                    <textarea id="channels" name="channels" placeholder="Inserisci un link per riga ai canali YouTube che vuoi seguire&#10;Esempio:&#10;https://www.youtube.com/@RaffaeleGaito&#10;https://www.youtube.com/@nomecanale">${config.channels ? config.channels.map(ch => ch.url).join('\\n') : ''}</textarea>
+                    <textarea id="channels" name="channels" placeholder="Inserisci un link per riga ai canali YouTube che vuoi seguire&#10;Esempio:&#10;https://www.youtube.com/@RaffaeleGaito&#10;https://www.youtube.com/@nomecanale"></textarea>
                 </div>
                 
                 <div class="form-group">
@@ -1387,7 +1386,7 @@ app.get('/', (req, res) => {
             
             <div class="url-display">
                 <h4>📋 URL Manifest (per Stremio) - DINAMICO</h4>
-                <div class="url" id="manifestUrl">${manifestUrl}</div>
+                <div class="url" id="manifestUrl">http://localhost:3100/manifest.json</div>
                 <button class="copy-btn" onclick="copyManifest()">Copia</button>
             </div>
             
@@ -1399,7 +1398,7 @@ app.get('/', (req, res) => {
             
             <div class="url-display">
                 <h4>🎬 Esempio Endpoint Proxy</h4>
-                <div class="url" id="proxyUrl">${baseUrl}/proxy/movie/yt_VIDEO_ID</div>
+                <div class="url" id="proxyUrl">http://localhost:3100/proxy/movie/yt_VIDEO_ID</div>
                 <button class="copy-btn" onclick="copyProxyUrl()">Copia</button>
             </div>
             
