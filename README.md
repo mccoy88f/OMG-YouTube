@@ -205,6 +205,15 @@ Le contribuzioni sono benvenute! Apri una issue o una pull request per migliorar
 
 Questo progetto è rilasciato sotto licenza MIT.
 
+## 🎨 Attribuzioni
+
+### Icona dell'App
+L'icona dell'addon è fornita da [Flaticon](https://www.flaticon.com/free-icon/play_10090287):
+- **Icona**: Play button by Freepik
+- **Link**: https://www.flaticon.com/free-icon/play_10090287?term=youtube&page=1&position=51&origin=tag&related_id=10090287
+- **Autore**: [Freepik](https://www.freepik.com) from [Flaticon](https://www.flaticon.com/)
+- **Licenza**: Flaticon License
+
 ## 🆘 Supporto
 
 Per problemi o domande:

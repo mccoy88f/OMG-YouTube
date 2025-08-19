@@ -14,6 +14,7 @@ ensureDataDir();
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static('public'));
 app.use(morgan('dev'));
 
 function buildManifest() {
@@ -22,7 +23,7 @@ function buildManifest() {
         ? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
         : [];
     
-    const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+    const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
     
     // Costruisci URL di configurazione per Stremio con parametri
     const configParams = new URLSearchParams();
@@ -42,8 +43,8 @@ function buildManifest() {
         name: 'OMG YouTube',
         description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
         version: '1.0.0',
-        logo: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
-        background: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+        logo: 'http://localhost:3100/favicon.png',
+        background: 'http://localhost:3100/favicon.png',
         contactEmail: 'admin@omg-youtube.com',
         catalogs: [
             {
@@ -71,9 +72,14 @@ function buildManifest() {
         types: ['movie', 'channel'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
-        configuration: `${baseUrl}/`,
+        configuration: 'http://localhost:3100/',
         // Endpoint proxy per streaming
-        proxy: `${baseUrl}/proxy`
+        proxy: 'http://localhost:3100/proxy',
+        // Comportamenti per Stremio
+        behaviorHints: {
+            configurable: true,
+            configurationRequired: false
+        }
     };
 }
 
@@ -134,15 +140,15 @@ function buildManifestFromConfig(config) {
         ? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
         : [];
     
-    const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+    const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
     
     return {
         id: 'com.omg.youtube',
         name: 'OMG YouTube',
         description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
         version: '1.0.0',
-        logo: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
-        background: 'https://www.youtube.com/s/desktop/12d6b090/img/favicon_144x144.png',
+        logo: 'http://localhost:3100/favicon.png',
+        background: 'http://localhost:3100/favicon.png',
         contactEmail: 'admin@omg-youtube.com',
         catalogs: [
             {
@@ -170,9 +176,14 @@ function buildManifestFromConfig(config) {
         types: ['movie', 'channel'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
-        configuration: `${baseUrl}/`,
+        configuration: 'http://localhost:3100/',
         // Endpoint proxy per streaming
-        proxy: `${baseUrl}/proxy`
+        proxy: 'http://localhost:3100/proxy',
+        // Comportamenti per Stremio
+        behaviorHints: {
+            configurable: true,
+            configurationRequired: false
+        }
     };
 }
 
@@ -396,7 +407,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
         
-        const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         
         // Restituisci l'URL del proxy invece dell'URL diretto di Google
         res.json({
@@ -723,46 +734,78 @@ app.post('/api/verify-api-key', async (req, res) => {
             });
         }
         
-        // Testa l'API Key con una richiesta semplice
-        const { searchVideos } = require('./lib/youtube');
-        const testResults = await searchVideos({ 
-            apiKey: apiKey.trim(), 
-            query: 'test', 
-            maxResults: 1 
-        });
+        // Testa l'API Key con una richiesta che ci dia più informazioni
+        const https = require('https');
+        const testUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&maxResults=1&type=video&key=${apiKey.trim()}`;
         
-        if (testResults && testResults.length > 0) {
-            res.json({
-                valid: true,
-                message: 'API Key valida e funzionante',
-                testResults: testResults.length
+        const testAPIKey = () => {
+            return new Promise((resolve, reject) => {
+                https.get(testUrl, (response) => {
+                    let data = '';
+                    response.on('data', chunk => data += chunk);
+                    response.on('end', () => {
+                        try {
+                            const result = JSON.parse(data);
+                            
+                            if (response.statusCode === 200 && result.items) {
+                                // API Key valida
+                                const quotaInfo = {
+                                    valid: true,
+                                    message: 'API Key valida e funzionante',
+                                    quota: `Quota utilizzata: ~1 unità per questa verifica`,
+                                    details: {
+                                        resultsFound: result.items.length,
+                                        totalResults: result.pageInfo?.totalResults || 0,
+                                        quotaCost: 'Search: 100 unità per 1000 richieste'
+                                    }
+                                };
+                                resolve(quotaInfo);
+                            } else if (response.statusCode === 403) {
+                                // Errore di quota o API Key
+                                if (result.error?.errors?.[0]?.reason === 'quotaExceeded') {
+                                    resolve({
+                                        valid: false,
+                                        message: 'Quota API esaurita per oggi',
+                                        quota: 'Quota giornaliera: 0/10,000 unità rimaste'
+                                    });
+                                } else if (result.error?.errors?.[0]?.reason === 'keyInvalid') {
+                                    resolve({
+                                        valid: false,
+                                        message: 'API Key non valida',
+                                        quota: 'API Key non riconosciuta da Google'
+                                    });
+                                } else {
+                                    resolve({
+                                        valid: false,
+                                        message: result.error?.message || 'Errore API Key',
+                                        quota: 'Accesso negato'
+                                    });
+                                }
+                            } else {
+                                resolve({
+                                    valid: false,
+                                    message: `Errore HTTP ${response.statusCode}`,
+                                    quota: 'Stato sconosciuto'
+                                });
+                            }
+                        } catch (parseError) {
+                            reject(parseError);
+                        }
+                    });
+                }).on('error', reject);
             });
-        } else {
-            res.json({
-                valid: false,
-                message: 'API Key non valida o quota esaurita'
-            });
-        }
+        };
+        
+        const result = await testAPIKey();
+        res.json(result);
         
     } catch (error) {
         console.error('API Key verification error:', error.message);
-        
-        if (error.message.includes('API key not valid')) {
-            res.json({
-                valid: false,
-                message: 'API Key non valida'
-            });
-        } else if (error.message.includes('quotaExceeded')) {
-            res.json({
-                valid: false,
-                message: 'Quota API esaurita'
-            });
-        } else {
-            res.json({
-                valid: false,
-                message: `Errore nella verifica: ${error.message}`
-            });
-        }
+        res.json({
+            valid: false,
+            message: 'Errore interno del server',
+            quota: 'Impossibile verificare lo stato'
+        });
     }
 });
 
@@ -842,7 +885,7 @@ app.get('/configure', (req, res) => {
             configParams.set('channels', channelsData);
         }
         
-        const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         const configUrl = `${baseUrl}/configure?${configParams.toString()}`;
         
         // Codifica l'URL in base64
@@ -909,7 +952,7 @@ app.get('/:encodedConfig/configure', (req, res) => {
             manifestParams.set('channels', channelsData);
         }
         
-        const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
+        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
         const manifestUrl = `${baseUrl}/manifest.json?${manifestParams.toString()}`;
         
         // Restituisci solo i dati JSON, non l'interfaccia HTML
@@ -930,29 +973,17 @@ app.get('/:encodedConfig/configure', (req, res) => {
 });
 
 // Admin UI
-app.get('/', (req, res) => {
-    const config = loadConfig();
-    const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
-    
-    // Genera URL del manifest con parametri di configurazione
-    const manifestParams = new URLSearchParams();
-    if (config.apiKey) manifestParams.set('apiKey', config.apiKey);
-    if (config.channels && config.channels.length > 0) {
-        const channelsData = config.channels.map(ch => ch.url).join('\n');
-        manifestParams.set('channels', channelsData);
-    }
-    
-    const manifestUrl = manifestParams.toString() ? 
-        `http://localhost:3100/manifest.json?${manifestParams.toString()}` : 
-        `http://localhost:3100/manifest.json`;
-    
-    res.send(`
+// Funzione per generare HTML del frontend
+function buildFrontendHTML() {
+    return `
 <!DOCTYPE html>
 <html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMG YouTube - Configurazione Addon Stremio</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="shortcut icon" href="/favicon.ico">
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1198,51 +1229,82 @@ app.get('/', (req, res) => {
     </div>
 
     <script>
-        // Carica la configurazione all'avvio
+        // Variabili globali
+        const NEWLINE = '\\u000A';
+        
+        // Inizializzazione
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
-            
-            // Aggiungi listener per il campo API Key
+            setupEventListeners();
+            applyConfigFromUrl();
+        });
+
+        // Setup event listeners
+        function setupEventListeners() {
+            // Form submission
+            const form = document.getElementById('configForm');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    saveConfig();
+                });
+            }
+
+            // API Key input with debounce
             const apiKeyInput = document.getElementById('apiKey');
             if (apiKeyInput) {
                 apiKeyInput.addEventListener('input', function() {
-                    // Debounce per evitare troppe chiamate
                     clearTimeout(window.apiKeyTimeout);
-                    window.apiKeyTimeout = setTimeout(async () => {
-                        await checkApiKeyStatus();
+                    window.apiKeyTimeout = setTimeout(function() {
+                        checkApiKeyStatus();
                     }, 1000);
+                    updateManifestUrl();
                 });
             }
-        });
 
-        // Carica la configurazione dal server
+            // Channels input
+            const channelsInput = document.getElementById('channels');
+            if (channelsInput) {
+                channelsInput.addEventListener('input', updateManifestUrl);
+            }
+        }
+
+        // Carica configurazione dal server
         async function loadConfig() {
             try {
                 const response = await fetch('/api/config');
                 if (response.ok) {
                     const config = await response.json();
-                    document.getElementById('apiKey').value = config.apiKey || '';
-                    document.getElementById('channels').value = config.channels ? config.channels.map(ch => ch.url).join('\n') : '';
-                    // Aggiorna l'URL del manifest con i nuovi parametri
+                    const apiKeyEl = document.getElementById('apiKey');
+                    const channelsEl = document.getElementById('channels');
+                    
+                    if (apiKeyEl) apiKeyEl.value = config.apiKey || '';
+                    if (channelsEl && config.channels) {
+                        channelsEl.value = config.channels.map(function(ch) { return ch.url; }).join(NEWLINE);
+                    }
+                    
                     updateManifestUrl();
-                    // Verifica lo stato dell'API Key
-                    await checkApiKeyStatus();
+                    checkApiKeyStatus();
                 }
             } catch (error) {
-                console.error('Errore nel caricamento della configurazione:', error);
+                console.error('Errore caricamento configurazione:', error);
             }
         }
 
-        // Controlla lo stato dell'API Key
+        // Verifica stato API Key
         async function checkApiKeyStatus() {
-            const apiKeyInput = document.getElementById('apiKey').value.trim();
+            const apiKeyInput = document.getElementById('apiKey');
             const statusElement = document.getElementById('api-status');
             
-            if (!apiKeyInput) {
+            if (!apiKeyInput || !statusElement) return;
+            
+            const apiKey = apiKeyInput.value.trim();
+            
+            if (!apiKey) {
                 statusElement.innerHTML = 
                     '<h3>🔑 Stato API Key</h3>' +
                     '<p style="color: #ff6b6b;">❌ Nessuna API Key configurata</p>' +
-                    '<p>Inserisci la tua API Key di Google YouTube per utilizzare l\'addon.</p>';
+                    '<p>Inserisci la tua API Key di Google YouTube.</p>';
                 return;
             }
             
@@ -1251,82 +1313,96 @@ app.get('/', (req, res) => {
                 '<p style="color: #ffa500;">🔍 Verifica in corso...</p>';
             
             try {
-                const verification = await verifyApiKey(apiKeyInput);
+                const verification = await verifyApiKey(apiKey);
                 if (verification.valid) {
+                    let quotaText = verification.quota || 'Informazioni quota non disponibili';
+                    let detailsText = '';
+                    
+                    if (verification.details) {
+                        detailsText = '<p style="color: #666; font-size: 0.9em;">Risultati trovati: ' + 
+                                    verification.details.resultsFound + ' | ' +
+                                    verification.details.quotaCost + '</p>';
+                    }
+                    
                     statusElement.innerHTML = 
                         '<h3>🔑 Stato API Key</h3>' +
                         '<p style="color: #4ecdc4;">✅ API Key valida e funzionante</p>' +
-                        '<p>Quota disponibile: ' + (verification.quota || 'Informazione non disponibile') + '</p>';
+                        '<p style="color: #2ecc71;">' + quotaText + '</p>' +
+                        detailsText;
                 } else {
+                    let quotaText = verification.quota || 'Stato quota sconosciuto';
+                    
                     statusElement.innerHTML = 
                         '<h3>🔑 Stato API Key</h3>' +
-                        '<p style="color: #ff6b6b;">❌ API Key non valida</p>' +
-                        '<p>' + (verification.message || 'Errore nella verifica') + '</p>';
+                        '<p style="color: #ff6b6b;">❌ ' + (verification.message || 'API Key non valida') + '</p>' +
+                        '<p style="color: #e74c3c;">' + quotaText + '</p>';
                 }
             } catch (error) {
                 statusElement.innerHTML = 
                     '<h3>🔑 Stato API Key</h3>' +
                     '<p style="color: #ff6b6b;">❌ Errore nella verifica</p>' +
-                    '<p>Impossibile verificare l\'API Key. Controlla la connessione.</p>';
+                    '<p style="color: #e74c3c;">Controlla la connessione di rete.</p>';
             }
         }
 
-
-
-        // Verifica l'API Key
+        // Verifica API Key
         async function verifyApiKey(apiKey) {
             try {
                 const response = await fetch('/api/verify-api-key', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ apiKey })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey: apiKey })
                 });
                 
                 if (response.ok) {
-                    const result = await response.json();
-                    return result;
+                    return await response.json();
                 } else {
-                    return { valid: false, message: 'Errore nella verifica' };
+                    return { valid: false, message: 'Errore verifica' };
                 }
             } catch (error) {
-                console.error('Errore nella verifica API Key:', error);
-                return { valid: false, message: 'Errore di connessione' };
+                console.error('Errore verifica API:', error);
+                return { valid: false, message: 'Errore connessione' };
             }
         }
 
-        // Aggiorna l'URL del manifest con i parametri correnti
+        // Aggiorna URL manifest
         function updateManifestUrl() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const channelsText = document.getElementById('channels').value.trim();
+            const apiKeyEl = document.getElementById('apiKey');
+            const channelsEl = document.getElementById('channels');
+            const manifestEl = document.getElementById('manifestUrl');
+            
+            if (!apiKeyEl || !channelsEl || !manifestEl) return;
+            
+            const apiKey = apiKeyEl.value.trim();
+            const channelsText = channelsEl.value.trim();
             
             const params = new URLSearchParams();
             if (apiKey) params.set('apiKey', apiKey);
             if (channelsText) {
-                const channels = channelsText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-                params.set('channels', channels.join('\n'));
+                const channels = channelsText.split(NEWLINE)
+                    .map(function(line) { return line.trim(); })
+                    .filter(function(line) { return line.length > 0; });
+                params.set('channels', channels.join(NEWLINE));
             }
             
             const manifestUrl = params.toString() ? 
                 window.location.origin + '/manifest.json?' + params.toString() : 
                 window.location.origin + '/manifest.json';
             
-            document.getElementById('manifestUrl').textContent = manifestUrl;
+            manifestEl.textContent = manifestUrl;
         }
 
-        // Salva la configurazione
+        // Salva configurazione
         async function saveConfig() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const channelsText = document.getElementById('channels').value.trim();
             
             if (!apiKey) {
-                showStatus('Inserisci l\'API Key di Google YouTube', 'error');
+                showStatus('Inserisci API Key di Google YouTube', 'error');
                 return;
             }
             
-            // Verifica prima l'API Key
-            showStatus('🔍 Verifica API Key in corso...', 'info');
+            showStatus('🔍 Verifica API Key...', 'info');
             const verification = await verifyApiKey(apiKey);
             
             if (!verification.valid) {
@@ -1334,46 +1410,46 @@ app.get('/', (req, res) => {
                 return;
             }
             
-            showStatus('✅ API Key verificata, salvataggio configurazione...', 'success');
+            showStatus('✅ API Key verificata, salvataggio...', 'success');
             
-            const channels = channelsText.split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0)
-                .map(url => ({ url, name: extractChannelName(url) }));
+            const channels = channelsText.split(NEWLINE)
+                .map(function(line) { return line.trim(); })
+                .filter(function(line) { return line.length > 0; })
+                .map(function(url) { 
+                    return { url: url, name: extractChannelName(url) }; 
+                });
             
             try {
                 const response = await fetch('/api/config', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ apiKey, channels })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey: apiKey, channels: channels })
                 });
                 
                 if (response.ok) {
                     const result = await response.json();
                     if (result.apiKey || result.channels) {
-                        showStatus('✅ Configurazione salvata e API Key verificata!', 'success');
-                        // Ricarica i campi per mostrare i dati salvati
+                        showStatus('✅ Configurazione salvata!', 'success');
                         document.getElementById('apiKey').value = result.apiKey || '';
-                        document.getElementById('channels').value = result.channels ? result.channels.map(ch => ch.url).join('\n') : '';
-                        // Aggiorna l'URL del manifest
+                        if (result.channels) {
+                            document.getElementById('channels').value = 
+                                result.channels.map(function(ch) { return ch.url; }).join(NEWLINE);
+                        }
                         updateManifestUrl();
-                        // Aggiorna lo stato dell'API Key
-                        await checkApiKeyStatus();
+                        checkApiKeyStatus();
                     } else {
-                        showStatus('Errore nel salvataggio della configurazione', 'error');
+                        showStatus('Errore salvataggio', 'error');
                     }
                 } else {
-                    showStatus('Errore nel salvataggio della configurazione', 'error');
+                    showStatus('Errore salvataggio', 'error');
                 }
             } catch (error) {
-                console.error('Errore nel salvataggio:', error);
-                showStatus('Errore nel salvataggio della configurazione', 'error');
+                console.error('Errore:', error);
+                showStatus('Errore salvataggio', 'error');
             }
         }
 
-        // Estrae il nome del canale dall'URL
+        // Estrai nome canale
         function extractChannelName(url) {
             try {
                 const urlObj = new URL(url);
@@ -1391,27 +1467,36 @@ app.get('/', (req, res) => {
             }
         }
 
-        // Mostra messaggi di stato
+        // Mostra stato
         function showStatus(message, type) {
             const statusDiv = document.getElementById('status');
+            if (!statusDiv) return;
+            
             statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
-            setTimeout(() => {
+            setTimeout(function() {
                 statusDiv.innerHTML = '';
             }, 5000);
         }
 
-        // Copia URL nel clipboard
+        // Copia nel clipboard
         function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                showStatus('URL copiato nel clipboard!', 'success');
-            }).catch(() => {
-                showStatus('Errore nella copia dell\'URL', 'error');
-            });
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(function() {
+                    showStatus('URL copiato!', 'success');
+                }).catch(function() {
+                    showStatus('Errore copia', 'error');
+                });
+            } else {
+                showStatus('Clipboard non supportato', 'error');
+            }
         }
 
-        // Funzioni per i pulsanti copia
+        // Funzioni pulsanti
         function copyManifest() {
-            copyToClipboard(document.getElementById('manifestUrl').textContent);
+            const manifestEl = document.getElementById('manifestUrl');
+            if (manifestEl) {
+                copyToClipboard(manifestEl.textContent);
+            }
         }
 
         function copyEncodedConfigUrl() {
@@ -1419,7 +1504,7 @@ app.get('/', (req, res) => {
             const channelsText = document.getElementById('channels').value.trim();
             
             if (!apiKey) {
-                showStatus('Inserisci prima l\'API Key', 'error');
+                showStatus('Inserisci prima API Key', 'error');
                 return;
             }
             
@@ -1428,79 +1513,75 @@ app.get('/', (req, res) => {
             configParams.set('apiKey', apiKey);
             
             if (channelsText) {
-                const channels = channelsText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-                configParams.set('channels', channels.join('\n'));
+                const channels = channelsText.split(NEWLINE)
+                    .map(function(line) { return line.trim(); })
+                    .filter(function(line) { return line.length > 0; });
+                configParams.set('channels', channels.join(NEWLINE));
             }
             
             const configUrl = baseUrl + '/configure?' + configParams.toString();
             
-            // Genera l'URL codificato
             fetch(configUrl)
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     if (data.success && data.urls.config) {
                         copyToClipboard(data.urls.config);
-                        showStatus('URL di configurazione codificato copiato! Usalo per condividere la configurazione.', 'success');
-                        // Aggiorna anche la visualizzazione
+                        showStatus('URL configurazione copiato!', 'success');
                         document.getElementById('encodedConfigUrl').textContent = data.urls.config;
-                        // Aggiorna anche l'URL del manifest
                         updateManifestUrl();
                     } else {
-                        showStatus('Errore nella generazione dell\'URL codificato', 'error');
+                        showStatus('Errore generazione URL', 'error');
                     }
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Errore:', error);
-                    showStatus('Errore nella generazione dell\'URL codificato', 'error');
+                    showStatus('Errore generazione URL', 'error');
                 });
         }
 
         function copyProxyUrl() {
-            copyToClipboard(document.getElementById('proxyUrl').textContent);
+            const proxyEl = document.getElementById('proxyUrl');
+            if (proxyEl) {
+                copyToClipboard(proxyEl.textContent);
+            }
         }
 
-        // Installa in Stremio
         function installInStremio() {
-            const manifestUrl = document.getElementById('manifestUrl').textContent;
-            // Rimuove il protocollo http/https per creare il link stremio://
-            const stremioUrl = manifestUrl.replace(/^https?:\/\//, 'stremio://');
+            const manifestEl = document.getElementById('manifestUrl');
+            if (!manifestEl) return;
+            
+            const manifestUrl = manifestEl.textContent;
+            const stremioUrl = manifestUrl.replace(/^https?:\\/\\//, 'stremio://');
             window.open(stremioUrl, '_blank');
-            showStatus('Tentativo di apertura in Stremio... Se non si apre, copia l\'URL del manifest manualmente.', 'success');
+            showStatus('Apertura Stremio...', 'success');
         }
 
-        // Gestisce l'invio del form
-        document.getElementById('configForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            saveConfig();
-        });
-
-        // Applica configurazione da URL se presente
+        // Applica config da URL
         function applyConfigFromUrl() {
             const urlParams = new URLSearchParams(window.location.search);
             const apiKey = urlParams.get('apiKey');
             const channels = urlParams.get('channels');
             
             if (apiKey) {
-                document.getElementById('apiKey').value = apiKey;
+                const apiKeyEl = document.getElementById('apiKey');
+                if (apiKeyEl) apiKeyEl.value = apiKey;
             }
             if (channels) {
-                document.getElementById('channels').value = channels;
+                const channelsEl = document.getElementById('channels');
+                if (channelsEl) channelsEl.value = channels;
             }
             
-            // Aggiorna l'URL del manifest dopo aver applicato la configurazione
             updateManifestUrl();
         }
-
-        // Applica configurazione all'avvio se presente negli URL
-        applyConfigFromUrl();
-        
-        // Aggiorna l'URL del manifest quando cambiano i campi
-        document.getElementById('apiKey').addEventListener('input', updateManifestUrl);
-        document.getElementById('channels').addEventListener('input', updateManifestUrl);
     </script>
 </body>
 </html>
-    `);
+    `;
+}
+
+// Admin UI route
+app.get('/', (req, res) => {
+    res.send(buildFrontendHTML());
 });
 
 app.listen(APP_PORT, () => {
