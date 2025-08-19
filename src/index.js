@@ -407,6 +407,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             
             try {
                 // Prima ottieni l'ID del canale dall'URL
+                console.log(`   🔍 Conversione URL → channelId per: ${channel.url}`);
                 const channelId = await getChannelIdFromInput({ apiKey: config.apiKey, input: channel.url });
                 if (!channelId) {
                     console.log(`❌ Impossibile ottenere ID canale da: ${channel.url}`);

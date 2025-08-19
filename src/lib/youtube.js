@@ -17,7 +17,8 @@ function toVideoMeta(item) {
 	const id = item.id?.videoId || item.id;
 	const snippet = item.snippet || {};
 	return {
-		videoId: id,
+		id: id,  // Cambiato da videoId a id
+		videoId: id,  // Mantengo anche videoId per compatibilità
 		title: snippet.title || '',
 		description: snippet.description || '',
 		thumbnail: pickThumb(snippet.thumbnails) || (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : undefined),
@@ -69,11 +70,28 @@ async function getChannelIdFromInput({ apiKey, input }) {
 	}
 	const handleMatch = url.match(/\/(?:@)([A-Za-z0-9._-]+)/);
 	if (handleMatch) {
-		const handle = `@${handleMatch[1]}`;
-		const { data } = await axios.get(`${YT_API_BASE}/search`, {
-			params: { part: 'snippet', q: handle, type: 'channel', maxResults: 1, key: apiKey }
-		});
-		return data.items?.[0]?.id?.channelId;
+		const handle = handleMatch[1];  // Senza il @
+		try {
+			// Prima prova con forHandle (YouTube API v3)
+			const { data } = await axios.get(`${YT_API_BASE}/channels`, {
+				params: { part: 'snippet', forHandle: handle, key: apiKey }
+			});
+			if (data.items?.[0]?.id) {
+				return data.items[0].id;
+			}
+		} catch (error) {
+			console.log(`❌ Errore forHandle per ${handle}:`, error.message);
+		}
+		
+		// Fallback: search con handle completo
+		try {
+			const { data } = await axios.get(`${YT_API_BASE}/search`, {
+				params: { part: 'snippet', q: `@${handle}`, type: 'channel', maxResults: 1, key: apiKey }
+			});
+			return data.items?.[0]?.snippet?.channelId;
+		} catch (error) {
+			console.log(`❌ Errore search per @${handle}:`, error.message);
+		}
 	}
 	return undefined;
 }
