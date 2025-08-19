@@ -880,16 +880,16 @@ app.get('/meta/:type/:id.json', async (req, res) => {
 
 // Endpoint proxy per diverse qualità
 app.get('/proxy-360/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=360]');
+    return handleProxyStream(req, res, 'worst[height>=240]/worst');
 });
 
 app.get('/proxy-720/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=720]');
+    return handleProxyStream(req, res, 'best[height<=720]/best');
 });
 
-// Nuovo endpoint per streaming proxy diretto (qualità massima >1080p)
+// Nuovo endpoint per streaming proxy diretto (qualità massima ≥1080p)
 app.get('/proxy/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height>1080]/best');
+    return handleProxyStream(req, res, 'best');
 });
 
 // Funzione condivisa per gestire il proxy streaming

@@ -90,6 +90,20 @@ L'addon sarà disponibile su `http://localhost:3100`
 3. Aggiungi i canali che vuoi seguire (uno per riga)
 4. Salva la configurazione
 
+### Configurazione per Produzione
+Se stai deployando l'addon su un server pubblico, configura il dominio reale:
+
+```bash
+# Imposta la variabile d'ambiente con il tuo dominio
+export PUBLIC_HOST="https://tuodominio.com:3100"
+
+# Oppure nel Docker Compose
+environment:
+  - PUBLIC_HOST=https://tuodominio.com:3100
+```
+
+Questo è **essenziale** per il corretto funzionamento dello streaming, altrimenti i link saranno generati con `localhost` e non funzioneranno da remoto.
+
 ### Configurazione Stremio
 1. Copia l'URL del manifest generato
 2. In Stremio, vai su Addons → Community Addons
