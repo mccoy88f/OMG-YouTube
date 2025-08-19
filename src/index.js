@@ -564,7 +564,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             streams: [
                 {
                     url: proxyUrl,
-                    title: '🎬 OMG YouTube - Alta Qualità (>1080p)',
+                    title: '🎬 OMG YouTube - Alta Qualità (≥1080p)',
                     ytId: videoId,
                     quality: '1440p+',
                     format: 'hls'
