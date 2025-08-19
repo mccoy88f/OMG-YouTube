@@ -295,7 +295,11 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
         
         if (type === 'movie' && id === 'omg-youtube-search') {
             // Ricerca video YouTube
-            const searchQuery = extra ? decodeURIComponent(extra) : '';
+            let searchQuery = extra ? decodeURIComponent(extra) : '';
+            // Estrai solo la query dalla stringa "search=query"
+            if (searchQuery.startsWith('search=')) {
+                searchQuery = searchQuery.substring(7); // Rimuovi "search="
+            }
             if (!searchQuery) {
                 console.log('🔍 Ricerca catalog: Query vuota, restituisco catalogo vuoto');
                 return res.json({ metas: [] });
