@@ -1,21 +1,29 @@
 version: '3.8'
+
 services:
   omg-youtube:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      no_cache: true
-    image: omg-youtube:latest
-    container_name: omg-youtube
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - PORT=3100
-      # Imposta a dominio:porta pubblico se esponi dietro reverse proxy (serve solo UI admin)
-      - PUBLIC_HOST=localhost:3100
+    build: .
+    container_name: omg-youtube-addon
     ports:
       - "3100:3100"
     volumes:
       - ./data:/app/data
+      - ./src:/app/src
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      - TZ=Europe/Rome
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/api/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 

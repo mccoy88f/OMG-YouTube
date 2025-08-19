@@ -220,13 +220,18 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             // Ricerca video YouTube
             const searchQuery = extra ? decodeURIComponent(extra) : '';
             if (!searchQuery) {
+                console.log('🔍 Ricerca catalog: Query vuota, restituisco catalogo vuoto');
                 return res.json({ metas: [] });
             }
             
-            console.log(`Search request: ${searchQuery}`);
+            console.log(`🔍 Ricerca catalog richiesta: "${searchQuery}"`);
+            console.log(`   📍 Tipo: ${type}, ID: ${id}`);
+            console.log(`   🔑 API Key configurata: ${config.apiKey ? 'Sì' : 'No'}`);
             
             try {
                 const videos = await searchVideos(searchQuery, config.apiKey);
+                console.log(`✅ Ricerca completata: ${videos.length} video trovati`);
+                
                 const metas = videos.map(video => ({
                     id: `yt_${video.id}`,
                     type: 'movie',
@@ -254,10 +259,17 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     ]
                 }));
                 
+                // Log dei primi 3 risultati per debug
+                metas.slice(0, 3).forEach((meta, i) => {
+                    console.log(`   📹 ${i + 1}. ${meta.name} (${meta.id})`);
+                    console.log(`      📺 Canale: ${meta.director}`);
+                    console.log(`      📅 Data: ${meta.releaseInfo}`);
+                });
+                
                 res.json({ metas });
                 
             } catch (error) {
-                console.error('Search error:', error.message);
+                console.error('❌ Errore nella ricerca catalog:', error.message);
                 res.json({ metas: [] });
             }
             
@@ -267,6 +279,9 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             
             if (!extra) {
                 // Se non è specificato un canale, restituisci la lista dei canali disponibili
+                console.log('📺 Catalog canali: Lista canali disponibili richiesta');
+                console.log(`   📊 Canali configurati: ${channels.length}`);
+                
                 // Stremio può mostrare questo come "seleziona un canale"
                 const availableChannels = channels.map((c) => ({
                     id: `genre_${c.name}`,
@@ -295,18 +310,26 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     ]
                 }));
                 
+                console.log('✅ Lista canali restituita');
                 return res.json({ metas: availableChannels });
             }
             
             // Estrai il nome del canale dall'extra
             const chosen = decodeURIComponent(extra);
-            console.log(`Channel request for: ${chosen}`);
+            console.log(`📺 Catalog canale specifico richiesto: "${chosen}"`);
             
             const channel = channels.find((c) => c.name === chosen);
-            if (!channel) return res.json({ metas: [] });
+            if (!channel) {
+                console.log(`❌ Canale non trovato: "${chosen}"`);
+                return res.json({ metas: [] });
+            }
+            
+            console.log(`   🔗 URL canale: ${channel.url}`);
             
             try {
                 const videos = await fetchChannelLatestVideos(channel.url, config.apiKey);
+                console.log(`✅ Video canale recuperati: ${videos.length} video`);
+                
                 const metas = videos.map(video => ({
                     id: `yt_${video.id}`,
                     type: 'movie',
@@ -334,19 +357,26 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     ]
                 }));
                 
+                // Log dei primi 3 video per debug
+                metas.slice(0, 3).forEach((meta, i) => {
+                    console.log(`   📹 ${i + 1}. ${meta.name} (${meta.id})`);
+                    console.log(`      📅 Data: ${meta.releaseInfo}`);
+                });
+                
                 res.json({ metas });
                 
             } catch (error) {
-                console.error('Channel videos error:', error.message);
+                console.error('❌ Errore nel recupero video canale:', error.message);
                 res.json({ metas: [] });
             }
             
         } else {
+            console.log(`⚠️ Catalog endpoint non riconosciuto: ${type}/${id}`);
             res.json({ metas: [] });
         }
         
     } catch (error) {
-        console.error('Catalog error:', error.message);
+        console.error('❌ Errore generale nel catalog:', error.message);
         res.status(500).json({ error: 'Errore nel catalogo' });
     }
 });
@@ -362,7 +392,9 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`Stream request for video: ${videoId}`);
+        console.log(`🎬 Stream request per video: ${videoId}`);
+        console.log(`   📍 Tipo: ${type}, ID: ${id}`);
+        console.log(`   🔗 URL completo: ${req.originalUrl}`);
         
         const baseUrl = process.env.PUBLIC_HOST || `http://localhost:${APP_PORT}`;
         
@@ -383,6 +415,225 @@ app.get('/stream/:type/:id.json', async (req, res) => {
     }
 });
 
+// Endpoint per i metadati dei video (NUOVO - richiesto da Stremio)
+app.get('/meta/:type/:id.json', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        
+        // Estrai videoId dall'id (rimuovi prefisso yt_ se presente)
+        let videoId = id;
+        if (id.startsWith('yt_')) {
+            videoId = id.substring(3);
+        }
+        
+        console.log(`📋 Meta request per video: ${videoId}`);
+        console.log(`   📍 Tipo: ${type}, ID: ${id}`);
+        console.log(`   🔗 URL completo: ${req.originalUrl}`);
+        
+        // Leggi i parametri di configurazione dall'URL del manifest
+        const manifestUrl = req.get('Referer') || req.headers.referer || '';
+        let config = { apiKey: '', channels: [] };
+        
+        try {
+            // Estrai parametri dall'URL del manifest
+            if (manifestUrl.includes('manifest.json')) {
+                const urlObj = new URL(manifestUrl);
+                const apiKey = urlObj.searchParams.get('apiKey');
+                const channelsParam = urlObj.searchParams.get('channels');
+                
+                if (apiKey) {
+                    config.apiKey = apiKey;
+                }
+                
+                if (channelsParam) {
+                    const channelUrls = channelsParam.split('\n').map(url => url.trim()).filter(url => url.length > 0);
+                    config.channels = channelUrls.map(url => ({ 
+                        url, 
+                        name: extractChannelNameFromUrl(url) 
+                    }));
+                }
+            }
+        } catch (error) {
+            console.log('Fallback to server config for meta');
+            // Fallback alla configurazione del server se non riesci a leggere dall'URL
+            config = loadConfig();
+        }
+        
+        if (!config.apiKey) {
+            return res.status(400).json({ error: 'API Key non configurata' });
+        }
+        
+        try {
+            // Prima verifica se yt-dlp è disponibile
+            const { checkYtDlpAvailable, getVideoFormats } = require('./lib/yt.js');
+            const ytDlpAvailable = await checkYtDlpAvailable();
+            
+            if (ytDlpAvailable) {
+                // Usa yt-dlp per ottenere informazioni complete del video
+                const videoInfo = await getVideoFormats(videoId);
+                
+                // Costruisci i metadati nel formato richiesto da Stremio
+                const meta = {
+                    id: `yt_${videoId}`,
+                    type: 'movie',
+                    name: videoInfo.title || `Video ${videoId}`,
+                    description: videoInfo.description || 'Video YouTube',
+                    poster: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    posterShape: 'landscape',
+                    logo: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    background: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    genre: ['YouTube'],
+                    releaseInfo: videoInfo.upload_date ? `${videoInfo.upload_date} (${videoInfo.duration_string || 'N/A'})` : 'YouTube',
+                    director: videoInfo.channel || videoInfo.uploader || 'YouTube',
+                    cast: [videoInfo.channel || videoInfo.uploader || 'YouTube'],
+                    country: 'YouTube',
+                    language: videoInfo.language || 'it',
+                    subtitles: videoInfo.subtitles ? Object.keys(videoInfo.subtitles) : [],
+                    year: videoInfo.upload_date ? parseInt(videoInfo.upload_date.substring(0, 4)) : new Date().getFullYear(),
+                    released: videoInfo.upload_date ? `${videoInfo.upload_date.substring(0, 4)}-${videoInfo.upload_date.substring(4, 6)}-${videoInfo.upload_date.substring(6, 8)}` : new Date().toISOString().split('T')[0],
+                    runtime: videoInfo.duration ? Math.floor(videoInfo.duration / 60) : undefined,
+                    links: [
+                        {
+                            name: 'YouTube',
+                            category: 'watch',
+                            url: `https://www.youtube.com/watch?v=${videoId}`
+                        }
+                    ],
+                    // Metadati aggiuntivi specifici di YouTube
+                    _yt: {
+                        videoId: videoId,
+                        channelId: videoInfo.channel_id,
+                        viewCount: videoInfo.view_count,
+                        likeCount: videoInfo.like_count,
+                        uploadDate: videoInfo.upload_date,
+                        duration: videoInfo.duration_string,
+                        tags: videoInfo.tags || [],
+                        categories: videoInfo.categories || [],
+                        formats: videoInfo.formats ? videoInfo.formats.length : 0
+                    }
+                };
+                
+                res.json({ meta });
+                return;
+            } else {
+                console.log('yt-dlp non disponibile, uso fallback API YouTube');
+            }
+            
+        } catch (error) {
+            console.error('Meta error with yt-dlp:', error.message);
+            
+            // Fallback: prova a usare l'API di YouTube se yt-dlp fallisce
+            try {
+                const { searchVideoById } = require('./lib/youtube');
+                
+                // Cerca il video specifico usando l'API di YouTube
+                const video = await searchVideoById({ 
+                    apiKey: config.apiKey, 
+                    videoId: videoId
+                });
+                
+                if (video) {
+                    const meta = {
+                        id: `yt_${videoId}`,
+                        type: 'movie',
+                        name: video.title || `Video ${videoId}`,
+                        description: video.description || 'Video YouTube',
+                        poster: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        posterShape: 'landscape',
+                        logo: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        background: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        genre: ['YouTube'],
+                        releaseInfo: video.publishedAt || 'YouTube',
+                        director: video.channelTitle || 'YouTube',
+                        cast: [video.channelTitle || 'YouTube'],
+                        country: 'YouTube',
+                        language: 'it',
+                        subtitles: [],
+                        year: video.publishedAt ? new Date(video.publishedAt).getFullYear() : new Date().getFullYear(),
+                        released: video.publishedAt || new Date().toISOString().split('T')[0],
+                        links: [
+                            {
+                                name: 'YouTube',
+                                category: 'watch',
+                                url: `https://www.youtube.com/watch?v=${videoId}`
+                            }
+                        ]
+                    };
+                    
+                    res.json({ meta });
+                } else {
+                    // Se non troviamo nulla, restituisci metadati minimi
+                    const fallbackMeta = {
+                        id: `yt_${videoId}`,
+                        type: 'movie',
+                        name: `Video YouTube ${videoId}`,
+                        description: 'Video YouTube',
+                        poster: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        posterShape: 'landscape',
+                        logo: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        background: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                        genre: ['YouTube'],
+                        releaseInfo: 'YouTube',
+                        director: 'YouTube',
+                        cast: ['YouTube'],
+                        country: 'YouTube',
+                        language: 'it',
+                        subtitles: [],
+                        year: new Date().getFullYear(),
+                        released: new Date().toISOString().split('T')[0],
+                        links: [
+                            {
+                                name: 'YouTube',
+                                category: 'watch',
+                                url: `https://www.youtube.com/watch?v=${videoId}`
+                            }
+                        ]
+                    };
+                    
+                    res.json({ meta: fallbackMeta });
+                }
+                
+            } catch (ytError) {
+                console.error('Meta fallback error:', ytError.message);
+                
+                // Ultimo fallback: metadati minimi
+                const minimalMeta = {
+                    id: `yt_${videoId}`,
+                    type: 'movie',
+                    name: `Video YouTube ${videoId}`,
+                    description: 'Video YouTube',
+                    poster: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    posterShape: 'landscape',
+                    logo: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    background: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    genre: ['YouTube'],
+                    releaseInfo: 'YouTube',
+                    director: 'YouTube',
+                    cast: ['YouTube'],
+                    country: 'YouTube',
+                    language: 'it',
+                    subtitles: [],
+                    year: new Date().getFullYear(),
+                    released: new Date().toISOString().split('T')[0],
+                    links: [
+                        {
+                            name: 'YouTube',
+                            category: 'watch',
+                            url: `https://www.youtube.com/watch?v=${videoId}`
+                        }
+                    ]
+                };
+                
+                res.json({ meta: minimalMeta });
+            }
+        }
+        
+    } catch (error) {
+        console.error('Meta endpoint error:', error.message);
+        res.status(500).json({ error: 'Errore nel recupero dei metadati' });
+    }
+});
+
 // Nuovo endpoint per streaming proxy diretto
 app.get('/proxy/:type/:id', async (req, res) => {
     try {
@@ -394,7 +645,11 @@ app.get('/proxy/:type/:id', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`Proxy stream request for video: ${videoId}`);
+        console.log(`🚀 Proxy stream request per video: ${videoId}`);
+        console.log(`   📍 Tipo: ${type}, ID: ${id}`);
+        console.log(`   🔗 URL completo: ${req.originalUrl}`);
+        console.log(`   🌐 User-Agent: ${req.get('User-Agent') || 'N/A'}`);
+        console.log(`   📱 Accept: ${req.get('Accept') || 'N/A'}`);
         
         // Imposta gli header per lo streaming video
         res.setHeader('Content-Type', 'video/mp4');
@@ -407,7 +662,7 @@ app.get('/proxy/:type/:id', async (req, res) => {
         
         // Gestisci gli errori dello stream
         videoStream.on('error', (error) => {
-            console.error('Video stream error:', error.message);
+            console.error(`❌ Video stream error per ${videoId}:`, error.message);
             if (!res.headersSent) {
                 res.status(500).json({ error: 'Errore nello streaming del video' });
             } else {
@@ -417,11 +672,17 @@ app.get('/proxy/:type/:id', async (req, res) => {
         
         // Inoltra lo stream alla risposta
         videoStream.pipe(res);
+        console.log(`✅ Stream avviato per ${videoId} - Client connesso`);
         
         // Gestisci la chiusura della connessione
         req.on('close', () => {
-            console.log(`Client disconnected for video: ${videoId}`);
+            console.log(`🔌 Client disconnesso per video: ${videoId}`);
             videoStream.destroy();
+        });
+        
+        // Gestisci la fine della risposta
+        res.on('finish', () => {
+            console.log(`✅ Stream completato per ${videoId} - Risposta inviata`);
         });
         
     } catch (error) {
@@ -441,6 +702,26 @@ app.get('/api/channels', (req, res) => {
 	const config = loadConfig();
 	const channels = config.channels || [];
 	res.json({ channels: channels.map(c => ({ name: c.name, url: c.url })) });
+});
+
+// Endpoint per verificare lo stato di yt-dlp
+app.get('/api/yt-dlp-status', async (req, res) => {
+    try {
+        const { checkYtDlpAvailable } = require('./lib/yt.js');
+        const isAvailable = await checkYtDlpAvailable();
+        
+        res.json({
+            available: isAvailable,
+            status: isAvailable ? 'OK' : 'Non disponibile',
+            message: isAvailable ? 'yt-dlp è installato e funzionante' : 'yt-dlp non è installato o non disponibile'
+        });
+    } catch (error) {
+        res.json({
+            available: false,
+            status: 'Errore',
+            message: `Errore nel controllo di yt-dlp: ${error.message}`
+        });
+    }
 });
 
 app.post('/api/config', async (req, res) => {
@@ -1014,6 +1295,11 @@ app.get('/', (req, res) => {
                 <p>• Compatibile con tutti i formati YouTube</p>
             </div>
 
+            <div id="yt-dlp-status" class="info-box">
+                <h3>🔧 Stato yt-dlp</h3>
+                <p>Caricamento stato...</p>
+            </div>
+
             <div class="important-note">
                 <h4>⚠️ IMPORTANTE: Sistema URL Configurazione Base64</h4>
                 <p>Questo addon usa un sistema di configurazione codificato in base64 per la condivisione.</p>
@@ -1059,6 +1345,7 @@ app.get('/', (req, res) => {
             
             <div style="text-align: center; margin-top: 30px;">
                 <button class="btn btn-success" onclick="installInStremio()">📱 Installa in Stremio</button>
+                <button class="btn btn-secondary" onclick="checkYtDlpStatus()">🔄 Ricontrolla yt-dlp</button>
             </div>
         </div>
     </div>
@@ -1067,6 +1354,7 @@ app.get('/', (req, res) => {
         // Carica la configurazione all'avvio
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
+            checkYtDlpStatus();
         });
 
         // Carica la configurazione dal server
@@ -1082,6 +1370,52 @@ app.get('/', (req, res) => {
                 }
             } catch (error) {
                 console.error('Errore nel caricamento della configurazione:', error);
+            }
+        }
+
+        // Controlla lo stato di yt-dlp
+        async function checkYtDlpStatus() {
+            try {
+                const response = await fetch('/api/yt-dlp-status');
+                if (response.ok) {
+                    const status = await response.json();
+                    const statusDiv = document.getElementById('yt-dlp-status');
+                    
+                    if (status.available) {
+                        statusDiv.innerHTML = \`
+                            <h3>✅ yt-dlp Disponibile</h3>
+                            <p>yt-dlp è installato e funzionante correttamente.</p>
+                            <p>• Streaming diretto: <strong>Disponibile</strong></p>
+                            <p>• Metadati completi: <strong>Disponibili</strong></p>
+                            <p>• Qualità video: <strong>Ottimale</strong></p>
+                        \`;
+                        statusDiv.className = 'info-box';
+                    } else {
+                        statusDiv.innerHTML = \`
+                            <h3>❌ yt-dlp Non Disponibile</h3>
+                            <p>yt-dlp non è installato o non funziona correttamente.</p>
+                            <p>• Streaming diretto: <strong>Non disponibile</strong></p>
+                            <p>• Metadati: <strong>Limitati (solo API YouTube)</strong></p>
+                            <p><strong>Per installare yt-dlp:</strong></p>
+                            <ul>
+                                <li><strong>macOS:</strong> <code>brew install yt-dlp</code></li>
+                                <li><strong>Ubuntu/Debian:</strong> <code>sudo apt install yt-dlp</code></li>
+                                <li><strong>Windows:</strong> <code>pip install yt-dlp</code></li>
+                                <li><strong>Docker:</strong> <code>docker run --rm -it yt-dlp/yt-dlp --version</code></li>
+                            </ul>
+                        \`;
+                        statusDiv.className = 'important-note';
+                    }
+                }
+            } catch (error) {
+                console.error('Errore nel controllo dello stato di yt-dlp:', error);
+                const statusDiv = document.getElementById('yt-dlp-status');
+                statusDiv.innerHTML = \`
+                    <h3>⚠️ Errore nel Controllo</h3>
+                    <p>Impossibile verificare lo stato di yt-dlp.</p>
+                    <p>Errore: \${error.message}</p>
+                \`;
+                statusDiv.className = 'important-note';
             }
         }
 
@@ -1279,7 +1613,26 @@ app.get('/', (req, res) => {
 });
 
 app.listen(APP_PORT, () => {
-	console.log(`OMG YouTube in ascolto su http://0.0.0.0:${APP_PORT}`);
+	console.log('🎥 OMG YouTube Addon Avviato!');
+	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
+	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
+	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
+	console.log('🔧 Controllo stato yt-dlp...');
+	
+	// Controlla lo stato di yt-dlp all'avvio
+	const { checkYtDlpAvailable } = require('./lib/yt.js');
+	checkYtDlpAvailable().then(available => {
+		if (available) {
+			console.log('✅ yt-dlp disponibile - Streaming diretto abilitato');
+		} else {
+			console.log('⚠️ yt-dlp non disponibile - Funzionalità limitate');
+			console.log('💡 Installa yt-dlp per funzionalità complete');
+		}
+	}).catch(error => {
+		console.log('❌ Errore nel controllo di yt-dlp:', error.message);
+	});
+	
+	console.log('🚀 Addon pronto per l\'uso!');
 });
 
 

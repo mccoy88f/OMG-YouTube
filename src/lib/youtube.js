@@ -42,6 +42,17 @@ async function searchVideos({ apiKey, query, maxResults = 50 }) {
 	return (data.items || []).map(toVideoMeta);
 }
 
+// Nuova funzione per cercare video specifici per ID
+async function searchVideoById({ apiKey, videoId }) {
+	const params = {
+		part: 'snippet',
+		id: videoId,
+		key: apiKey
+	};
+	const { data } = await axios.get(`${YT_API_BASE}/videos`, { params });
+	return data.items && data.items.length > 0 ? toVideoMeta(data.items[0]) : null;
+}
+
 async function getChannelIdFromInput({ apiKey, input }) {
 	if (!input) return undefined;
 	const url = String(input).trim();
@@ -96,6 +107,7 @@ async function fetchChannelLatestVideos({ apiKey, channelId, maxResults = 50 }) 
 
 module.exports = {
 	searchVideos,
+	searchVideoById,
 	getChannelIdFromInput,
 	fetchChannelLatestVideos,
 	fetchChannelTitleAndThumb

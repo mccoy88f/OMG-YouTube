@@ -1,25 +1,34 @@
-FROM node:20-bookworm-slim
+FROM node:18-alpine
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    ca-certificates \
+# Installa dipendenze di sistema
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
     ffmpeg \
-    yt-dlp \
-  && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/cache/apk/*
 
+# Installa yt-dlp
+RUN pip3 install --no-cache-dir yt-dlp
+
+# Crea directory dell'app
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev || npm install --omit=dev
+# Copia package.json e package-lock.json
+COPY package*.json ./
 
-COPY src ./src
+# Installa dipendenze Node.js
+RUN npm ci --only=production
+
+# Copia il codice sorgente
+COPY . .
+
+# Crea directory per i dati
 RUN mkdir -p /app/data
 
-ENV NODE_ENV=production
-ENV PORT=3100
-
+# Esponi la porta
 EXPOSE 3100
 
-CMD ["node", "src/index.js"]
+# Comando di avvio
+CMD ["npm", "start"]
 
 
