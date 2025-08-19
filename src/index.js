@@ -1448,30 +1448,8 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Controlla lo stato di yt-dlp prima di avviare il server
-async function startServer() {
+app.listen(APP_PORT, () => {
 	console.log('🎥 OMG YouTube Addon Avviato!');
-	console.log('🔧 Controllo stato yt-dlp...');
-	
-	try {
-		const { checkYtDlpAvailable } = require('./lib/yt.js');
-		const available = await checkYtDlpAvailable();
-		
-		if (available) {
-			console.log('✅ yt-dlp disponibile - Streaming diretto abilitato');
-		} else {
-			console.log('⚠️ yt-dlp non disponibile - Funzionalità limitate');
-			console.log('💡 Installa yt-dlp per funzionalità complete');
-		}
-	} catch (error) {
-		console.log('❌ Errore nel controllo di yt-dlp:', error.message);
-	}
-}
-
-app.listen(APP_PORT, async () => {
-	// Controlla yt-dlp all'avvio
-	await startServer();
-	
 	console.log(`🌐 Server in ascolto su: http://0.0.0.0:${APP_PORT}`);
 	console.log(`📱 Interfaccia admin: http://localhost:${APP_PORT}`);
 	console.log(`📋 Manifest: http://localhost:${APP_PORT}/manifest.json`);
