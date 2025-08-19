@@ -1,15 +1,11 @@
-FROM node:18-alpine
+FROM node:20-bookworm-slim
 
-# Installa dipendenze di sistema
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
     ffmpeg \
-    && rm -rf /var/cache/apk/*
-
-# Installa yt-dlp e aggiorna all'ultima versione
-RUN pip3 install --no-cache-dir yt-dlp && \
-    yt-dlp -U
+    yt-dlp \
+  && rm -rf /var/lib/apt/lists/*
 
 # Crea directory dell'app
 WORKDIR /app
