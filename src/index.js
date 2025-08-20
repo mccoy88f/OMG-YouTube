@@ -5,7 +5,7 @@ const path = require('path');
 
 const { loadConfig, saveConfig, ensureDataDir } = require('./lib/config');
 const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos, fetchChannelTitleAndThumb, checkApiQuotaStatus } = require('./lib/youtube');
-const { getVideoFormats } = require('./lib/yt.js');
+const { getVideoFormats, searchVideosWithYtDlp } = require('./lib/yt.js');
 const { getStreamUrlForVideo, createVideoStream, createVideoStreamWithQuality } = require('./lib/yt.js');
 
 const APP_PORT = process.env.PORT ? Number(process.env.PORT) : 3100;
@@ -320,13 +320,25 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             
             console.log(`🔍 Ricerca catalog richiesta: "${searchQuery}"`);
             console.log(`   📍 Tipo: ${type}, ID: ${id}`);
+            console.log(`   🔧 Modalità ricerca: ${config.searchMode || 'api'}`);
             console.log(`   🔑 API Key configurata: ${config.apiKey ? 'Sì' : 'No'}`);
             console.log(`   📺 Canali configurati: ${config.channels.length}`);
             
             try {
                 const extractionLimit = config.extractionLimit || 25;
                 console.log(`   🎯 Limite di estrazione: ${extractionLimit}`);
-                const videos = await searchVideos({ apiKey: config.apiKey, query: searchQuery, maxResults: extractionLimit });
+                
+                let videos;
+                if (config.searchMode === 'ytdlp') {
+                    // Modalità yt-dlp: ricerca gratuita ma più lenta
+                    console.log(`   🔍 Usando yt-dlp search (gratuito)`);
+                    videos = await searchVideosWithYtDlp(searchQuery, extractionLimit);
+                } else {
+                    // Modalità API: ricerca veloce ma consuma quota
+                    console.log(`   🚀 Usando YouTube Data API (quota: ${extractionLimit * 4} unità)`);
+                    videos = await searchVideos({ apiKey: config.apiKey, query: searchQuery, maxResults: extractionLimit });
+                }
+                
                 console.log(`✅ Ricerca completata: ${videos.length} video trovati`);
                 
                 const metas = videos.map(video => ({
@@ -368,11 +380,53 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             } catch (error) {
                 console.error('❌ Errore nella ricerca catalog:', error.message);
                 
+                // Gestione fallback intelligente
+                if (config.searchMode === 'api' && (error.message.includes('QUOTA_EXCEEDED') || error.message.includes('API_ERROR'))) {
+                    console.log('🔄 Tentativo fallback a yt-dlp search...');
+                    try {
+                        const videos = await searchVideosWithYtDlp(searchQuery, extractionLimit);
+                        console.log(`✅ Fallback yt-dlp completato: ${videos.length} video trovati`);
+                        
+                        const metas = videos.map(video => ({
+                            id: `yt_${video.id}`,
+                            type: 'movie',
+                            name: video.title,
+                            description: video.description,
+                            poster: video.thumbnail,
+                            posterShape: 'landscape',
+                            logo: video.channelThumbnail,
+                            background: video.thumbnail,
+                            genre: ['YouTube'],
+                            releaseInfo: video.publishedAt,
+                            director: video.channelTitle,
+                            cast: [video.channelTitle],
+                            country: 'YouTube',
+                            language: 'it',
+                            subtitles: [],
+                            year: new Date(video.publishedAt).getFullYear(),
+                            released: video.publishedAt,
+                            links: [
+                                {
+                                    name: 'YouTube',
+                                    category: 'watch',
+                                    url: `https://www.youtube.com/watch?v=${video.id}`
+                                }
+                            ]
+                        }));
+                        
+                        return res.json({ metas });
+                        
+                    } catch (fallbackError) {
+                        console.error('❌ Anche il fallback yt-dlp è fallito:', fallbackError.message);
+                    }
+                }
+                
                 // Gestione specifica degli errori di quota
                 if (error.message.includes('QUOTA_EXCEEDED')) {
                     console.error('💡 Suggerimento: La quota API YouTube è stata superata');
                     console.error('   • Attendi fino a domani per il reset automatico');
                     console.error('   • Oppure crea una nuova API Key su Google Cloud Console');
+                    console.error('   • Oppure usa la modalità yt-dlp search (gratuita)');
                 }
                 
                 res.json({ metas: [] });
@@ -1551,6 +1605,71 @@ function buildFrontendHTML(req = null) {
             margin: 5px 0;
             color: #856404;
         }
+        .search-mode-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .search-mode-section h3 {
+            margin: 0 0 15px 0;
+            color: #495057;
+            font-size: 16px;
+        }
+        .search-mode-switch {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .search-mode-switch input[type="radio"] {
+            display: none;
+        }
+        .mode-label {
+            flex: 1;
+            min-width: 200px;
+            padding: 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .mode-label:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+        }
+        .search-mode-switch input[type="radio"]:checked + .mode-label {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        .mode-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .mode-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #495057;
+            margin-bottom: 4px;
+        }
+        .mode-desc {
+            font-size: 12px;
+            color: #6c757d;
+            line-height: 1.3;
+        }
+        .api-key-section {
+            transition: opacity 0.3s ease, height 0.3s ease;
+        }
+        .api-key-section.hidden {
+            opacity: 0.3;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -1569,6 +1688,25 @@ function buildFrontendHTML(req = null) {
                 <p>• Compatibile con tutti i formati YouTube</p>
             </div>
 
+            <div class="search-mode-section">
+                <h3>🔧 Modalità di Ricerca</h3>
+                <div class="search-mode-switch">
+                    <input type="radio" id="mode-api" name="searchMode" value="api" checked>
+                    <label for="mode-api" class="mode-label">
+                        <span class="mode-icon">🚀</span>
+                        <span class="mode-title">YouTube API</span>
+                        <span class="mode-desc">Veloce, affidabile, richiede API Key</span>
+                    </label>
+                    
+                    <input type="radio" id="mode-ytdlp" name="searchMode" value="ytdlp">
+                    <label for="mode-ytdlp" class="mode-label">
+                        <span class="mode-icon">🔍</span>
+                        <span class="mode-title">yt-dlp Search</span>
+                        <span class="mode-desc">Gratuito, più lento, nessuna API Key</span>
+                    </label>
+                </div>
+            </div>
+
             <div id="api-status" class="info-box">
                 <h3>🔑 Stato API Key</h3>
                 <p>Caricamento stato...</p>
@@ -1582,7 +1720,7 @@ function buildFrontendHTML(req = null) {
             </div>
 
             <form id="configForm">
-                <div class="form-group">
+                <div class="form-group api-key-section" id="apiKeySection">
                     <label for="apiKey">🔑 API Key Google YouTube:</label>
                     <input type="text" id="apiKey" name="apiKey" value="" placeholder="Inserisci la tua API Key di Google YouTube">
                 </div>
@@ -1653,13 +1791,25 @@ function buildFrontendHTML(req = null) {
                 });
             }
 
+            // Search mode switch
+            const searchModeInputs = document.querySelectorAll('input[name="searchMode"]');
+            searchModeInputs.forEach(function(input) {
+                input.addEventListener('change', function() {
+                    handleSearchModeChange();
+                    updateManifestUrl();
+                });
+            });
+
             // API Key input with debounce
             const apiKeyInput = document.getElementById('apiKey');
             if (apiKeyInput) {
                 apiKeyInput.addEventListener('input', function() {
                     clearTimeout(window.apiKeyTimeout);
                     window.apiKeyTimeout = setTimeout(function() {
-                        checkApiKeyStatus();
+                        const selectedMode = document.querySelector('input[name="searchMode"]:checked').value;
+                        if (selectedMode === 'api') {
+                            checkApiKeyStatus();
+                        }
                     }, 1000);
                     updateManifestUrl();
                 });
@@ -1675,6 +1825,24 @@ function buildFrontendHTML(req = null) {
             const limitInput = document.getElementById('extractionLimit');
             if (limitInput) {
                 limitInput.addEventListener('input', updateManifestUrl);
+            }
+        }
+
+        // Gestisce il cambio di modalità di ricerca
+        function handleSearchModeChange() {
+            const selectedMode = document.querySelector('input[name="searchMode"]:checked').value;
+            const apiKeySection = document.getElementById('apiKeySection');
+            const apiStatusSection = document.getElementById('api-status');
+            
+            if (selectedMode === 'ytdlp') {
+                // Modalità yt-dlp: nascondi sezione API Key
+                apiKeySection.classList.add('hidden');
+                apiStatusSection.style.display = 'none';
+            } else {
+                // Modalità API: mostra sezione API Key
+                apiKeySection.classList.remove('hidden');
+                apiStatusSection.style.display = 'block';
+                checkApiKeyStatus();
             }
         }
 
@@ -1694,8 +1862,20 @@ function buildFrontendHTML(req = null) {
                     }
                     if (limitEl) limitEl.value = config.extractionLimit || 25;
                     
+                    // Imposta la modalità di ricerca
+                    const searchMode = config.searchMode || 'api';
+                    const searchModeEl = document.getElementById(searchMode === 'api' ? 'mode-api' : 'mode-ytdlp');
+                    if (searchModeEl) {
+                        searchModeEl.checked = true;
+                        handleSearchModeChange();
+                    }
+                    
                     updateManifestUrl();
-                    checkApiKeyStatus();
+                    
+                    // Verifica API Key solo se in modalità API
+                    if (searchMode === 'api') {
+                        checkApiKeyStatus();
+                    }
                 }
             } catch (error) {
                 console.error('Errore caricamento configurazione:', error);
@@ -1788,17 +1968,19 @@ function buildFrontendHTML(req = null) {
             const apiKey = apiKeyEl.value.trim();
             const channelsText = channelsEl.value.trim();
             const extractionLimit = parseInt(limitEl.value) || 25;
+            const searchMode = document.querySelector('input[name="searchMode"]:checked').value;
             
             // Crea configurazione per codifica base64
             let manifestUrl = window.location.origin + '/manifest.json';
             
-            if (apiKey || channelsText || extractionLimit !== 25) {
+            if (apiKey || channelsText || extractionLimit !== 25 || searchMode !== 'api') {
                 const configData = {
-                    apiKey: apiKey,
+                    apiKey: searchMode === 'api' ? apiKey : '',
                     channels: channelsText ? channelsText.split(NEWLINE)
                         .map(function(line) { return line.trim(); })
                         .filter(function(line) { return line.length > 0; }) : [],
-                    extractionLimit: extractionLimit
+                    extractionLimit: extractionLimit,
+                    searchMode: searchMode
                 };
                 
                 // Codifica in base64
@@ -1815,21 +1997,28 @@ function buildFrontendHTML(req = null) {
             const apiKey = document.getElementById('apiKey').value.trim();
             const channelsText = document.getElementById('channels').value.trim();
             const extractionLimit = parseInt(document.getElementById('extractionLimit').value) || 25;
+            const searchMode = document.querySelector('input[name="searchMode"]:checked').value;
             
-            if (!apiKey) {
-                showStatus('Inserisci API Key di Google YouTube', 'error');
+            // Se modalità yt-dlp, non è necessaria API Key
+            if (searchMode === 'api' && !apiKey) {
+                showStatus('Inserisci API Key di Google YouTube per la modalità API', 'error');
                 return;
             }
             
-            showStatus('🔍 Verifica API Key...', 'info');
-            const verification = await verifyApiKey(apiKey);
-            
-            if (!verification.valid) {
-                showStatus('❌ ' + verification.message, 'error');
-                return;
+            // Verifica API Key solo se in modalità API
+            if (searchMode === 'api') {
+                showStatus('🔍 Verifica API Key...', 'info');
+                const verification = await verifyApiKey(apiKey);
+                
+                if (!verification.valid) {
+                    showStatus('❌ ' + verification.message, 'error');
+                    return;
+                }
+                
+                showStatus('✅ API Key verificata, salvataggio...', 'success');
+            } else {
+                showStatus('💾 Salvataggio configurazione yt-dlp...', 'info');
             }
-            
-            showStatus('✅ API Key verificata, salvataggio...', 'success');
             
             const channels = channelsText.split(NEWLINE)
                 .map(function(line) { return line.trim(); })
@@ -1842,7 +2031,12 @@ function buildFrontendHTML(req = null) {
                 const response = await fetch('/api/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ apiKey: apiKey, channels: channels, extractionLimit: extractionLimit })
+                    body: JSON.stringify({ 
+                        apiKey: searchMode === 'api' ? apiKey : '', 
+                        channels: channels, 
+                        extractionLimit: extractionLimit,
+                        searchMode: searchMode 
+                    })
                 });
                 
                 if (response.ok) {

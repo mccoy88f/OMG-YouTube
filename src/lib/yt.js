@@ -284,12 +284,109 @@ async function getVideoFormats(videoId) {
     });
 }
 
+/**
+ * Ricerca video usando yt-dlp (alternativa gratuita alla YouTube API)
+ * @param {string} query - Query di ricerca
+ * @param {number} maxResults - Numero massimo di risultati (default: 25)
+ * @returns {Promise<Array>} Array di video nel formato compatibile
+ */
+async function searchVideosWithYtDlp(query, maxResults = 25) {
+    const isAvailable = await checkYtDlpAvailable();
+    if (!isAvailable) {
+        throw new Error('yt-dlp non è installato o non disponibile');
+    }
+
+    console.log(`🔍 Ricerca yt-dlp: "${query}" (limite: ${maxResults})`);
+
+    return new Promise((resolve, reject) => {
+        const searchQuery = `ytsearch${maxResults}:${query}`;
+        
+        const ytDlp = spawn('yt-dlp', [
+            '--dump-json',
+            '--no-playlist',
+            '--no-cache-dir',
+            '--dateafter', 'today-5years', // Solo video degli ultimi 5 anni
+            searchQuery
+        ]);
+
+        let stdout = '';
+        let stderr = '';
+
+        ytDlp.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        ytDlp.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        ytDlp.on('close', (code) => {
+            if (code === 0) {
+                try {
+                    // yt-dlp restituisce un JSON per ogni video, uno per riga
+                    const lines = stdout.trim().split('\n').filter(line => line.trim());
+                    const videos = lines.map(line => {
+                        try {
+                            return JSON.parse(line);
+                        } catch (e) {
+                            console.log(`⚠️ Errore parsing JSON line: ${e.message}`);
+                            return null;
+                        }
+                    }).filter(video => video !== null);
+
+                    // Converte nel formato compatibile con YouTube API
+                    const convertedVideos = videos.map(video => ({
+                        id: video.id,
+                        videoId: video.id,
+                        title: video.title || '',
+                        description: video.description || video.title || '',
+                        thumbnail: video.thumbnail || `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`,
+                        channelTitle: video.uploader || video.channel || 'YouTube',
+                        channelThumbnail: video.uploader_url ? `https://yt3.ggpht.com/a/default-user=s88-c-k-c0x00ffffff-no-rj` : undefined,
+                        publishedAt: video.upload_date ? 
+                            `${video.upload_date.substring(0, 4)}-${video.upload_date.substring(4, 6)}-${video.upload_date.substring(6, 8)}T00:00:00Z` 
+                            : new Date().toISOString(),
+                        viewCount: video.view_count || 0,
+                        duration: video.duration || 0
+                    }));
+
+                    // Ordina per data di pubblicazione (più recenti primi)
+                    convertedVideos.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+
+                    console.log(`✅ yt-dlp ricerca completata: ${convertedVideos.length} video trovati`);
+                    resolve(convertedVideos);
+                    
+                } catch (error) {
+                    console.log(`❌ Errore parsing risultati yt-dlp: ${error.message}`);
+                    reject(new Error(`Errore parsing risultati: ${error.message}`));
+                }
+            } else {
+                console.log(`❌ yt-dlp search fallito con codice ${code}: ${stderr}`);
+                reject(new Error(`yt-dlp search fallito: ${stderr}`));
+            }
+        });
+
+        ytDlp.on('error', (error) => {
+            console.log(`❌ Errore esecuzione yt-dlp search: ${error.message}`);
+            reject(new Error(`Errore esecuzione yt-dlp: ${error.message}`));
+        });
+
+        // Timeout dopo 30 secondi
+        setTimeout(() => {
+            ytDlp.kill();
+            console.log(`⏰ Timeout ricerca yt-dlp per: ${query}`);
+            reject(new Error('Timeout ricerca yt-dlp'));
+        }, 30000);
+    });
+}
+
 module.exports = {
     checkYtDlpAvailable,
     getStreamUrlForVideo,
     createVideoStream,
     createVideoStreamWithQuality,
-    getVideoFormats
+    getVideoFormats,
+    searchVideosWithYtDlp
 };
 
 
