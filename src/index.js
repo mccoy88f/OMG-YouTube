@@ -578,9 +578,10 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`🎬 Stream request per video: ${videoId} - Interrogazione formati disponibili`);
+        console.log(`🎬 Stream request per video: ${videoId}`);
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
+        console.log(`   🔧 Modalità stream: ${config.streamMode || 'simple'}`);
         
         // Rileva automaticamente baseUrl dalla richiesta
         const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
@@ -590,9 +591,38 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         // Passa i parametri di configurazione al proxy
         const queryString = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
         
+        // Modalità Semplice: Solo formato massima qualità
+        if (config.streamMode === 'advanced') {
+            console.log(`   🔍 Modalità Avanzata - Recupero formati disponibili per ${videoId}...`);
+        } else {
+            console.log(`   ⚡ Modalità Semplice - Solo massima qualità per ${videoId}`);
+            
+            // Restituisce solo il formato massima qualità
+            const bestUrl = queryString ? 
+                `${baseUrl}/proxy-best/${type}/${id}?${queryString}` : 
+                `${baseUrl}/proxy-best/${type}/${id}`;
+
+            console.log(`   👑 Stream massima qualità generato`);
+            res.json({
+                streams: [{
+                    url: bestUrl,
+                    title: '👑 Massima Qualità (bestvideo+bestaudio)',
+                    ytId: videoId,
+                    quality: 'Best',
+                    format: 'mp4',
+                    formatId: 'bestvideo+bestaudio',
+                    resolution: 'Auto',
+                    fps: 'Auto',
+                    vcodec: 'best',
+                    acodec: 'best',
+                    filesize: 0
+                }]
+            });
+            return;
+        }
+        
         try {
-            // Interroga yt-dlp per i formati disponibili
-            console.log(`   🔍 Recupero formati disponibili per ${videoId}...`);
+            // Interroga yt-dlp per i formati disponibili (solo modalità avanzata)
             const videoInfo = await getVideoFormats(videoId);
             
             if (!videoInfo || !videoInfo.formats) {
@@ -639,6 +669,23 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 throw new Error('Nessun formato video utilizzabile');
             }
             
+            // Aggiungi formato speciale "Massima Qualità" (bestvideo+bestaudio) come primo elemento
+            const maxQualityStream = {
+                url: queryString ? 
+                    `${baseUrl}/proxy-best/${type}/${id}?${queryString}` : 
+                    `${baseUrl}/proxy-best/${type}/${id}`,
+                title: '👑 Massima Qualità (bestvideo+bestaudio)',
+                ytId: videoId,
+                quality: 'Best',
+                format: 'mp4',
+                formatId: 'bestvideo+bestaudio',
+                resolution: 'Auto',
+                fps: 'Auto',
+                vcodec: 'best',
+                acodec: 'best',
+                filesize: 0
+            };
+
             // Genera i stream usando URL diretti (no proxy)
             const streams = availableFormats.map((format, index) => {
                 // Usa l'URL diretto di YouTube (MP4 o HLS)
@@ -689,13 +736,16 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 };
             });
             
+            // Combina formato massima qualità + formati diretti
+            const allStreams = [maxQualityStream, ...streams];
+            
             // Log dei formati per debug
-            streams.slice(0, 3).forEach((stream, i) => {
+            allStreams.slice(0, 4).forEach((stream, i) => {
                 console.log(`   ${i + 1}. ${stream.title}`);
                 console.log(`      Format ID: ${stream.formatId}, Resolution: ${stream.resolution}`);
             });
             
-            res.json({ streams });
+            res.json({ streams: allStreams });
             
         } catch (formatError) {
             console.error(`   ❌ Errore recupero formati per ${videoId}:`, formatError.message);
@@ -713,8 +763,20 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 `${baseUrl}/proxy-360/${type}/${id}?${queryString}` : 
                 `${baseUrl}/proxy-360/${type}/${id}`;
             
+            // Aggiungi anche il formato massima qualità nel fallback
+            const bestUrl = queryString ? 
+                `${baseUrl}/proxy-best/${type}/${id}?${queryString}` : 
+                `${baseUrl}/proxy-best/${type}/${id}`;
+
             res.json({
                 streams: [
+                    {
+                        url: bestUrl,
+                        title: '👑 Massima Qualità (bestvideo+bestaudio)',
+                        ytId: videoId,
+                        quality: 'Best',
+                        format: 'mp4'
+                    },
                     {
                         url: proxyUrl,
                         title: '🎬 Alta Qualità (legacy)',
@@ -1032,6 +1094,27 @@ app.get('/meta/:type/:id.json', async (req, res) => {
     }
 });
 
+// Endpoint per massima qualità (bestvideo+bestaudio)
+app.get('/proxy-best/:type/:id', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        const videoId = id.startsWith('yt_') ? id.substring(3) : id;
+        
+        console.log(`🎯 Massima qualità richiesta per video: ${videoId}`);
+        console.log(`   Tipo: ${type}, ID: ${id}`);
+        console.log(`   URL completo: ${req.originalUrl}`);
+        console.log(`   User-Agent: ${req.get('User-Agent')}`);
+        console.log(`   Accept: ${req.get('Accept')}`);
+        console.log(`   🏆 Qualità richiesta: bestvideo+bestaudio`);
+
+        const videoStream = await createVideoStreamWithQuality(videoId, 'bestvideo+bestaudio');
+        videoStream.pipe(res);
+    } catch (error) {
+        console.error('Proxy best error:', error.message);
+        res.status(500).send('Errore nel proxy streaming massima qualità');
+    }
+});
+
 // Endpoint proxy per formato specifico (NUOVO)
 app.get('/proxy-format/:type/:id/:formatId', async (req, res) => {
     const { formatId } = req.params;
@@ -1262,7 +1345,7 @@ app.post('/api/verify-api-key', async (req, res) => {
 });
 
 app.post('/api/config', async (req, res) => {
-    const { apiKey, channels, extractionLimit } = req.body || {};
+    const { apiKey, channels, extractionLimit, searchMode, streamMode } = req.body || {};
     const providedApiKey = String(apiKey || '').trim();
     const providedLimit = Math.max(5, Math.min(50, parseInt(extractionLimit) || 25));
 
@@ -1306,7 +1389,13 @@ app.post('/api/config', async (req, res) => {
         enriched.push({ name, url: ch.url, channelId });
     }
 
-    const conf = { apiKey: providedApiKey, channels: enriched, extractionLimit: providedLimit };
+    const conf = { 
+        apiKey: providedApiKey, 
+        channels: enriched, 
+        extractionLimit: providedLimit,
+        searchMode: searchMode || 'api',
+        streamMode: streamMode || 'simple'
+    };
     saveConfig(conf);
     res.json(conf);
 });
@@ -1687,6 +1776,71 @@ function buildFrontendHTML(req = null) {
             opacity: 0.3;
             pointer-events: none;
         }
+        
+        /* Stili per input con informazioni */
+        .input-with-info {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .input-info {
+            color: #666;
+            font-size: 12px;
+            font-style: italic;
+        }
+        
+        /* Stili per radio group */
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .radio-option {
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fafafa;
+        }
+        
+        .radio-option:hover {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+        
+        .radio-option input[type="radio"] {
+            margin-right: 10px;
+            align-self: flex-start;
+        }
+        
+        .radio-option input[type="radio"]:checked + .radio-label {
+            color: #007bff;
+            font-weight: bold;
+        }
+        
+        .radio-option:has(input[type="radio"]:checked) {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+        
+        .radio-label {
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        
+        .radio-desc {
+            color: #666;
+            font-size: 12px;
+            margin-left: 22px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -1749,10 +1903,28 @@ function buildFrontendHTML(req = null) {
                 
                 <div class="form-group">
                     <label for="extractionLimit">🎯 Limite di Estrazione:</label>
-                    <input type="number" id="extractionLimit" name="extractionLimit" value="25" min="5" max="50" placeholder="25">
-                    <small style="color: #666; display: block; margin-top: 5px;">
-                        Numero massimo di video per ricerca e per stagione nei canali (5-50)
-                    </small>
+                    <div class="input-with-info">
+                        <input type="number" id="extractionLimit" name="extractionLimit" value="25" min="5" max="50" placeholder="25">
+                        <small class="input-info">
+                            Numero massimo di video per ricerca e per stagione nei canali (5-50)
+                        </small>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>🎬 Modalità Stream:</label>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="streamMode" value="simple" checked>
+                            <span class="radio-label">⚡ Semplice</span>
+                            <small class="radio-desc">Solo massima qualità (bestvideo+bestaudio) - Più veloce</small>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="streamMode" value="advanced">
+                            <span class="radio-label">🔧 Avanzata</span>
+                            <small class="radio-desc">Tutti i formati disponibili - Scelta completa</small>
+                        </label>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -1815,6 +1987,12 @@ function buildFrontendHTML(req = null) {
                     handleSearchModeChange();
                     updateManifestUrl();
                 });
+            });
+            
+            // Stream mode switch
+            const streamModeInputs = document.querySelectorAll('input[name="streamMode"]');
+            streamModeInputs.forEach(function(input) {
+                input.addEventListener('change', updateManifestUrl);
             });
 
             // API Key input with debounce
@@ -1885,6 +2063,13 @@ function buildFrontendHTML(req = null) {
                     if (searchModeEl) {
                         searchModeEl.checked = true;
                         handleSearchModeChange();
+                    }
+                    
+                    // Imposta la modalità di stream
+                    const streamMode = config.streamMode || 'simple';
+                    const streamModeEl = document.querySelector('input[name="streamMode"][value="' + streamMode + '"]');
+                    if (streamModeEl) {
+                        streamModeEl.checked = true;
                     }
                     
                     updateManifestUrl();
@@ -1986,18 +2171,20 @@ function buildFrontendHTML(req = null) {
             const channelsText = channelsEl.value.trim();
             const extractionLimit = parseInt(limitEl.value) || 25;
             const searchMode = document.querySelector('input[name="searchMode"]:checked').value;
+            const streamMode = document.querySelector('input[name="streamMode"]:checked').value;
             
             // Crea configurazione per codifica base64
             let manifestUrl = window.location.origin + '/manifest.json';
             
-            if (apiKey || channelsText || extractionLimit !== 25 || searchMode !== 'api') {
+            if (apiKey || channelsText || extractionLimit !== 25 || searchMode !== 'api' || streamMode !== 'simple') {
                 const configData = {
                     apiKey: searchMode === 'api' ? apiKey : '',
                     channels: channelsText ? channelsText.split(NEWLINE)
                         .map(function(line) { return line.trim(); })
                         .filter(function(line) { return line.length > 0; }) : [],
                     extractionLimit: extractionLimit,
-                    searchMode: searchMode
+                    searchMode: searchMode,
+                    streamMode: streamMode
                 };
                 
                 // Codifica in base64
@@ -2015,6 +2202,7 @@ function buildFrontendHTML(req = null) {
             const channelsText = document.getElementById('channels').value.trim();
             const extractionLimit = parseInt(document.getElementById('extractionLimit').value) || 25;
             const searchMode = document.querySelector('input[name="searchMode"]:checked').value;
+            const streamMode = document.querySelector('input[name="streamMode"]:checked').value;
             
             // Se modalità yt-dlp, non è necessaria API Key
             if (searchMode === 'api' && !apiKey) {
@@ -2052,7 +2240,8 @@ function buildFrontendHTML(req = null) {
                         apiKey: searchMode === 'api' ? apiKey : '', 
                         channels: channels, 
                         extractionLimit: extractionLimit,
-                        searchMode: searchMode 
+                        searchMode: searchMode,
+                        streamMode: streamMode
                     })
                 });
                 

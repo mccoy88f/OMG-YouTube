@@ -11,7 +11,8 @@ function ensureDataDir() {
 			apiKey: '', 
 			channels: [], 
 			extractionLimit: 25,
-			searchMode: 'api' // 'api' or 'ytdlp'
+			searchMode: 'api', // 'api' or 'ytdlp'
+			streamMode: 'simple' // 'simple' or 'advanced'
 		};
 		fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaults, null, 2));
 	}
@@ -26,14 +27,16 @@ function loadConfig() {
 			apiKey: config.apiKey || '',
 			channels: config.channels || [],
 			extractionLimit: config.extractionLimit || 25,
-			searchMode: config.searchMode || 'api'
+			searchMode: config.searchMode || 'api',
+			streamMode: config.streamMode || 'simple'
 		};
 	} catch (e) {
 		return { 
 			apiKey: '', 
 			channels: [], 
 			extractionLimit: 25,
-			searchMode: 'api'
+			searchMode: 'api',
+			streamMode: 'simple'
 		};
 	}
 }
@@ -43,7 +46,8 @@ function saveConfig(config) {
 		apiKey: String(config.apiKey || '').trim(),
 		channels: Array.isArray(config.channels) ? config.channels : [],
 		extractionLimit: Math.max(5, Math.min(50, parseInt(config.extractionLimit) || 25)),
-		searchMode: config.searchMode === 'ytdlp' ? 'ytdlp' : 'api'
+		searchMode: config.searchMode === 'ytdlp' ? 'ytdlp' : 'api',
+		streamMode: config.streamMode === 'advanced' ? 'advanced' : 'simple'
 	};
 	fs.writeFileSync(CONFIG_PATH, JSON.stringify(toSave, null, 2));
 	return toSave;
