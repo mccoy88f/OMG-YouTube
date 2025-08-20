@@ -605,32 +605,24 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 throw new Error('Lista formati vuota');
             }
             
-            // Filtra formati utilizzabili: MP4 completi + HLS quando disponibili
+            // Filtra formati utilizzabili secondo la logica yt-dlp
             const availableFormats = videoInfo.formats
                 .filter(format => {
-                    // Strategia: MP4 completi (audio+video) O HLS nativi
-                    const isMp4Complete = (
-                        format.ext === 'mp4' && 
-                        format.vcodec && format.vcodec !== 'none' &&
-                        format.acodec && format.acodec !== 'none' &&
-                        format.protocol === 'https' &&
-                        format.height >= 240
+                    // Strategia: formati "best" = vcodec!=none AND acodec!=none
+                    // Equivalente al filtro yt-dlp [vcodec!=none][acodec!=none]
+                    const hasBothVideoAndAudio = (
+                        format.vcodec && format.vcodec !== 'none' && format.vcodec !== null &&
+                        format.acodec && format.acodec !== 'none' && format.acodec !== null &&
+                        format.height >= 240 && // Minima qualità
+                        format.url && format.url.length > 0 // URL valido
                     );
                     
-                    const isHLS = (
-                        format.protocol === 'm3u8_native' &&
-                        format.url && format.url.includes('index.m3u8') &&
-                        format.height >= 240
-                    );
-                    
-                    return isMp4Complete || isHLS;
+                    return hasBothVideoAndAudio;
                 })
                 .sort((a, b) => {
-                    // Priorità: 1) MP4 completi, 2) HLS, 3) Qualità video
-                    const aScore = (a.ext === 'mp4' && a.acodec !== 'none') ? 3 : 
-                                  (a.protocol === 'm3u8_native') ? 2 : 1;
-                    const bScore = (b.ext === 'mp4' && b.acodec !== 'none') ? 3 : 
-                                  (b.protocol === 'm3u8_native') ? 2 : 1;
+                    // Priorità: 1) MP4 (più compatibili), 2) Risoluzione
+                    const aScore = a.ext === 'mp4' ? 2 : 1;
+                    const bScore = b.ext === 'mp4' ? 2 : 1;
                     
                     if (aScore !== bScore) return bScore - aScore;
                     return (b.height || 0) - (a.height || 0);
@@ -676,11 +668,11 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 }
                 
                 // Informazioni aggiuntive sul formato
-                const isMP4 = format.ext === 'mp4' && format.acodec !== 'none';
-                const isHLS = format.protocol === 'm3u8_native';
-                // Tutti i formati selezionati hanno audio - specifichiamo il tipo
-                const streamType = isMP4 ? ' 🎵' : isHLS ? ' 🎵📡' : ' 📹';
+                // Tutti i formati filtrati hanno video+audio garantiti (vcodec!=none AND acodec!=none)
                 const codec = format.vcodec ? format.vcodec.split('.')[0].toUpperCase() : 'MP4';
+                const isMP4 = format.ext === 'mp4';
+                const isHLS = format.protocol === 'm3u8_native';
+                const streamType = isMP4 ? ' 🎵' : isHLS ? ' 🎵📡' : ' 🎵📹';
                 
                 return {
                     url: directUrl,
@@ -692,7 +684,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                     resolution: `${format.width || '?'}x${format.height || '?'}`,
                     fps: format.fps || 30,
                     vcodec: format.vcodec || 'unknown',
-                    acodec: isMP4 ? format.acodec : (isHLS ? 'included' : 'none'),
+                    acodec: format.acodec || 'audio',
                     filesize: format.filesize || 0
                 };
             });
