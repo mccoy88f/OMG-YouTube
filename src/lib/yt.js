@@ -121,25 +121,53 @@ async function createVideoStreamWithQuality(videoId, quality = 'best') {
     console.log(`🎬 Creazione stream proxy per video: ${videoId} - Qualità: ${quality}`);
 
     return new Promise((resolve, reject) => {
+        // Ottimizzazione parametri yt-dlp per streaming stabile
+        let formatSelection = quality;
+        if (quality === 'best') {
+            // Usa una selezione formato più intelligente invece di "best"
+            formatSelection = 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b';
+        }
+
         const ytDlp = spawn('yt-dlp', [
-            '-f', quality,
+            '-f', formatSelection,
             '-o', '-', // Output su stdout
             '--no-playlist',
             '--no-cache-dir',
-            '--extractor-args', 'youtube:player_client=android',
-            '--force-generic-extractor',
-            '--no-check-certificates',
+            '--no-warnings', // Riduci i warning verbose
+            '--quiet', // Modalità silenziosa per stderr
+            '--buffer-size', '16K', // Buffer ottimizzato per streaming
+            '--http-chunk-size', '10M', // Chunk size per HTTP
+            '--retries', '3', // Retry automatici
+            '--fragment-retries', '3', // Retry per frammenti
+            '--extractor-args', 'youtube:player_client=android,web', // Fallback multipli
+            '--extractor-args', 'youtube:formats=missing_pot', // Abilita formati senza PO token
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
         console.log(`🚀 yt-dlp avviato per streaming: ${videoId} con qualità ${quality}`);
 
+        // Gestione ottimizzata dello stream
+        let totalBytes = 0;
+        let startTime = Date.now();
+
         ytDlp.stdout.on('data', (chunk) => {
-            console.log(`📊 Chunk ricevuto per ${videoId}: ${chunk.length} bytes`);
+            totalBytes += chunk.length;
+            if (totalBytes % (1024 * 1024) === 0) { // Log ogni MB
+                const elapsed = (Date.now() - startTime) / 1000;
+                const speed = totalBytes / elapsed / 1024 / 1024;
+                console.log(`📊 ${videoId}: ${(totalBytes / 1024 / 1024).toFixed(1)}MB trasferiti (${speed.toFixed(1)}MB/s)`);
+            }
         });
 
         ytDlp.stderr.on('data', (data) => {
-            console.log(`yt-dlp stderr per ${videoId}: ${data.toString()}`);
+            const stderrText = data.toString();
+            // Log solo errori critici, non warning verbosi
+            if (stderrText.includes('ERROR') || stderrText.includes('CRITICAL')) {
+                console.log(`❌ yt-dlp error per ${videoId}: ${stderrText.trim()}`);
+            } else if (stderrText.includes('WARNING') && !stderrText.includes('PO Token')) {
+                // Log warning solo se non sono i soliti warning PO Token
+                console.log(`⚠️  yt-dlp warning per ${videoId}: ${stderrText.trim()}`);
+            }
         });
 
         ytDlp.on('error', (error) => {
@@ -147,12 +175,15 @@ async function createVideoStreamWithQuality(videoId, quality = 'best') {
             reject(error);
         });
 
-        ytDlp.on('exit', (code) => {
-            if (code !== 0) {
-                console.error(`❌ yt-dlp uscito con codice ${code} per ${videoId}`);
-                reject(new Error(`yt-dlp fallito con codice ${code}`));
+        ytDlp.on('exit', (code, signal) => {
+            if (code === 0) {
+                console.log(`✅ yt-dlp completato per ${videoId} (${(totalBytes / 1024 / 1024).toFixed(1)}MB)`);
+            } else if (code === 120 && signal === null) {
+                // Codice 120 spesso indica disconnessione client (broken pipe)
+                console.log(`🔌 Client disconnesso durante streaming per ${videoId} (${(totalBytes / 1024 / 1024).toFixed(1)}MB trasferiti)`);
             } else {
-                console.log(`✅ yt-dlp completato per ${videoId}`);
+                console.error(`❌ yt-dlp uscito con codice ${code}, segnale ${signal} per ${videoId}`);
+                reject(new Error(`yt-dlp fallito con codice ${code}`));
             }
         });
 
@@ -183,9 +214,6 @@ async function getVideoFormats(videoId) {
             '--dump-json',
             '--no-playlist',
             '--no-cache-dir',
-            '--extractor-args', 'youtube:player_client=android',
-            '--force-generic-extractor',
-            '--no-check-certificates',
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 

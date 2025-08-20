@@ -4,7 +4,8 @@ const morgan = require('morgan');
 const path = require('path');
 
 const { loadConfig, saveConfig, ensureDataDir } = require('./lib/config');
-const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos, fetchChannelTitleAndThumb } = require('./lib/youtube');
+const { searchVideos, getChannelIdFromInput, fetchChannelLatestVideos, fetchChannelTitleAndThumb, checkApiQuotaStatus } = require('./lib/youtube');
+const { getVideoFormats } = require('./lib/yt.js');
 const { getStreamUrlForVideo, createVideoStream, createVideoStreamWithQuality } = require('./lib/yt.js');
 
 const APP_PORT = process.env.PORT ? Number(process.env.PORT) : 3100;
@@ -64,11 +65,11 @@ function buildManifest(req = null) {
                 ]
             },
             {
-                type: 'series',
+                type: 'movie',
                 id: 'omg-youtube-followed',
-                name: 'YouTube',
+                name: 'YouTube Canali Seguiti',
                 extra: [
-                    { name: 'genre', isRequired: false, options: channelNames }
+                    { name: 'genre', isRequired: false, options: ['Tutti i canali'].concat(channelNames) }
                 ]
             }
         ],
@@ -77,7 +78,7 @@ function buildManifest(req = null) {
             'stream',
             'meta'
         ],
-        types: ['movie', 'channel'],
+        types: ['movie'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
         configuration: `${baseUrl}/`,
@@ -207,11 +208,11 @@ function buildManifestFromConfig(config, req = null) {
                 ]
             },
             {
-                type: 'series',
+                type: 'movie',
                 id: 'omg-youtube-followed',
-                name: 'YouTube',
+                name: 'YouTube Canali Seguiti',
                 extra: [
-                    { name: 'genre', isRequired: false, options: channelNames }
+                    { name: 'genre', isRequired: false, options: ['Tutti i canali'].concat(channelNames) }
                 ]
             }
         ],
@@ -220,7 +221,7 @@ function buildManifestFromConfig(config, req = null) {
             'stream',
             'meta'
         ],
-        types: ['movie', 'channel'],
+        types: ['movie'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
         configuration: `${baseUrl}/`,
@@ -366,140 +367,113 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 
             } catch (error) {
                 console.error('❌ Errore nella ricerca catalog:', error.message);
+                
+                // Gestione specifica degli errori di quota
+                if (error.message.includes('QUOTA_EXCEEDED')) {
+                    console.error('💡 Suggerimento: La quota API YouTube è stata superata');
+                    console.error('   • Attendi fino a domani per il reset automatico');
+                    console.error('   • Oppure crea una nuova API Key su Google Cloud Console');
+                }
+                
                 res.json({ metas: [] });
             }
             
-        } else if (type === 'series' && id === 'omg-youtube-followed') {
-            // Canali seguiti
+        } else if (type === 'movie' && id === 'omg-youtube-followed') {
+            // Canali seguiti - YouTube Discover
             const channels = config.channels || [];
             
-            if (!extra) {
-                // Se non è specificato un canale, restituisci la lista dei canali disponibili
-                console.log('Catalog canali: Lista canali disponibili richiesta');
-                console.log(`   Canali configurati: ${channels.length}`);
-                
-                // Recupera informazioni per tutti i canali
-                const channelInfoPromises = channels.map(async (c) => {
-                    try {
-                        const channelId = await getChannelIdFromInput({ apiKey: config.apiKey, input: c.url });
-                        if (channelId) {
-                            const channelInfo = await fetchChannelTitleAndThumb({ apiKey: config.apiKey, channelId });
-                            return { ...c, ...channelInfo };
-                        }
-                    } catch (error) {
-                        console.log(`❌ Errore recupero info canale ${c.name}:`, error.message);
-                    }
-                    return c;
-                });
-                
-                const channelsWithInfo = await Promise.all(channelInfoPromises);
-                
-                // Stremio può mostrare questo come "seleziona un canale"
-                const availableChannels = channelsWithInfo.map((c) => ({
-                    id: `genre_${c.name}`,
-                    type: 'series',
-                    name: c.channelTitle || c.name,
-                    description: `Canale: ${c.channelTitle || c.name}`,
-                    poster: c.channelThumbnail || `${baseUrl}/favicon.png`,
-                    posterShape: 'square',
-                    logo: c.channelThumbnail || `${baseUrl}/favicon.png`,
-                    background: c.channelThumbnail || `${baseUrl}/favicon.png`,
-                    genre: ['YouTube'],
-                    releaseInfo: 'Canale seguito',
-                    director: c.name,
-                    cast: [c.name],
-                    country: 'YouTube',
-                    language: 'it',
-                    subtitles: [],
-                    year: new Date().getFullYear(),
-                    released: new Date().toISOString(),
-                    links: [
-                        {
-                            name: 'YouTube',
-                            category: 'channel',
-                            url: c.url
-                        }
-                    ]
-                }));
-                
-                console.log('✅ Lista canali restituita');
-                return res.json({ metas: availableChannels });
-            }
-            
-            // Estrai il nome del canale dall'extra
-            const decodedExtra = decodeURIComponent(extra);
-            console.log(`Catalog canale specifico richiesto: "${decodedExtra}"`);
-            
-            // Se il parametro è nel formato "genre=channelname", estrai solo il nome del canale
-            let chosen = decodedExtra;
-            if (decodedExtra.includes('genre=')) {
-                chosen = decodedExtra.split('genre=')[1];
-            }
-            console.log(`   🔍 Cerco canale: "${chosen}"`);
-            
-            const channel = channels.find((c) => c.name === chosen);
-            if (!channel) {
-                console.log(`❌ Canale non trovato: "${chosen}"`);
+            if (!channels.length) {
+                console.log('❌ Nessun canale configurato per YouTube Discover');
                 return res.json({ metas: [] });
             }
             
-            console.log(`   URL canale: ${channel.url}`);
+            console.log(`🎬 YouTube Discover richiesto`);
+            console.log(`   📺 Canali configurati: ${channels.length}`);
+            console.log(`   🔍 Filtro: ${extra || 'Tutti i canali'}`);
             
-            try {
-                // Prima ottieni l'ID del canale dall'URL
-                console.log(`   🔍 Conversione URL → channelId per: ${channel.url}`);
-                const channelId = await getChannelIdFromInput({ apiKey: config.apiKey, input: channel.url });
-                if (!channelId) {
-                    console.log(`❌ Impossibile ottenere ID canale da: ${channel.url}`);
+            // Determina quali canali interrogare
+            let channelsToQuery = channels;
+            if (extra && extra !== 'genre=Tutti%20i%20canali' && extra !== 'Tutti i canali') {
+                // Estrai il nome del canale dal filtro
+                let filterName = decodeURIComponent(extra);
+                if (filterName.includes('genre=')) {
+                    filterName = filterName.split('genre=')[1];
+                }
+                
+                // Trova il canale specifico
+                const specificChannel = channels.find(c => c.name === filterName);
+                if (specificChannel) {
+                    channelsToQuery = [specificChannel];
+                    console.log(`   🎯 Filtro canale specifico: ${specificChannel.name}`);
+                } else {
+                    console.log(`   ❌ Canale non trovato: ${filterName}`);
                     return res.json({ metas: [] });
                 }
-                
-                console.log(`   📺 ID canale: ${channelId}`);
-                
-                // Poi recupera i video e le info del canale 
+            }
+            
+            try {
                 const extractionLimit = config.extractionLimit || 25;
-                console.log(`   🎯 Limite per stagione: ${extractionLimit}`);
+                const videosPerChannel = Math.ceil(extractionLimit / channelsToQuery.length);
                 
-                // Recuperiamo più video per creare le stagioni
-                const maxVideosForSeasons = extractionLimit * 4; // Fino a 4 stagioni
-                const [allVideos, channelInfo] = await Promise.all([
-                    fetchChannelLatestVideos({ apiKey: config.apiKey, channelId, maxResults: maxVideosForSeasons }),
-                    fetchChannelTitleAndThumb({ apiKey: config.apiKey, channelId })
-                ]);
+                console.log(`   🎯 Limite totale: ${extractionLimit}`);
+                console.log(`   📊 Video per canale: ${videosPerChannel}`);
                 
-                console.log(`✅ Video totali recuperati: ${allVideos.length} video`);
-                console.log(`✅ Info canale recuperate: ${channelInfo.channelTitle}`);
-                
-                // Creiamo le stagioni fittizie dividendo i video
-                const seasons = [];
-                for (let i = 0; i < allVideos.length; i += extractionLimit) {
-                    seasons.push(allVideos.slice(i, i + extractionLimit));
-                }
-                
-                console.log(`📺 Stagioni create: ${seasons.length} stagioni`);
-                seasons.forEach((season, index) => {
-                    console.log(`   Stagione ${index + 1}: ${season.length} video`);
+                // Recupera video da tutti i canali da interrogare
+                const channelVideoPromises = channelsToQuery.map(async (channel) => {
+                    try {
+                        console.log(`   🔍 Recupero video da: ${channel.name}`);
+                        
+                        // Ottieni l'ID del canale
+                        const channelId = await getChannelIdFromInput({ apiKey: config.apiKey, input: channel.url });
+                        if (!channelId) {
+                            console.log(`   ❌ Impossibile ottenere ID per: ${channel.name}`);
+                            return [];
+                        }
+                        
+                        // Recupera i video più recenti
+                        const videos = await fetchChannelLatestVideos({ 
+                            apiKey: config.apiKey, 
+                            channelId, 
+                            maxResults: videosPerChannel 
+                        });
+                        
+                        console.log(`   ✅ ${videos.length} video da ${channel.name}`);
+                        return videos;
+                        
+                    } catch (error) {
+                        console.log(`   ❌ Errore per canale ${channel.name}:`, error.message);
+                        return [];
+                    }
                 });
                 
-                // Per ora mostriamo solo la prima stagione (più recenti)
-                // TODO: In futuro implementare la selezione stagione via extra parameter
-                const videos = seasons[0] || [];
+                // Attendi tutti i risultati
+                const allChannelVideos = await Promise.all(channelVideoPromises);
                 
-                const metas = videos.map((video, index) => ({
+                // Unisci e mescola i video di tutti i canali
+                const allVideos = allChannelVideos.flat();
+                
+                // Ordina per data di pubblicazione (più recenti primi)
+                allVideos.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+                
+                // Limita al numero totale richiesto
+                const finalVideos = allVideos.slice(0, extractionLimit);
+                
+                console.log(`✅ YouTube Discover: ${finalVideos.length} video totali da ${channelsToQuery.length} canali`);
+                
+                // Crea i meta objects come per la ricerca (tipo movie, non episode)
+                const metas = finalVideos.map(video => ({
                     id: `yt_${video.id}`,
-                    type: 'episode',
+                    type: 'movie',  // ✅ Consistente con la ricerca
                     name: video.title,
                     description: video.description,
                     poster: video.thumbnail,
                     posterShape: 'landscape',
-                    logo: channelInfo.channelThumbnail || video.thumbnail,
+                    logo: video.channelThumbnail,
                     background: video.thumbnail,
-                    genre: ['YouTube'],
+                    genre: ['YouTube', video.channelTitle],  // Include il nome del canale
                     releaseInfo: video.publishedAt,
-                    season: 1,
-                    episode: index + 1,
-                    director: channelInfo.channelTitle || video.channelTitle,
-                    cast: [channelInfo.channelTitle || video.channelTitle],
+                    director: video.channelTitle,
+                    cast: [video.channelTitle],
                     country: 'YouTube',
                     language: 'it',
                     subtitles: [],
@@ -517,13 +491,14 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 // Log dei primi 3 video per debug
                 metas.slice(0, 3).forEach((meta, i) => {
                     console.log(`   Video ${i + 1}. ${meta.name} (${meta.id})`);
+                    console.log(`      Canale: ${meta.director}`);
                     console.log(`      Data: ${meta.releaseInfo}`);
                 });
                 
                 res.json({ metas });
                 
             } catch (error) {
-                console.error('❌ Errore nel recupero video canale:', error.message);
+                console.error('❌ Errore nel recupero video YouTube Discover:', error.message);
                 res.json({ metas: [] });
             }
             
@@ -538,7 +513,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     }
 });
 
-// Endpoint per ottenere informazioni sullo stream (per compatibilità)
+// Endpoint per ottenere informazioni sullo stream (con formati dinamici)
 app.get('/stream/:type/:id.json', async (req, res) => {
     try {
         const { type, id } = req.params;
@@ -549,7 +524,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             videoId = id.substring(3);
         }
         
-        console.log(`Stream request per video: ${videoId}`);
+        console.log(`🎬 Stream request per video: ${videoId} - Interrogazione formati disponibili`);
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
         
@@ -560,49 +535,142 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         
         // Passa i parametri di configurazione al proxy
         const queryString = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
-        const proxyUrl = queryString ? 
-            `${baseUrl}/proxy/${type}/${id}?${queryString}` : 
-            `${baseUrl}/proxy/${type}/${id}`;
         
-        console.log(`   🎬 Proxy URL generato: ${proxyUrl}`);
-        
-        // URLs per le diverse qualità
-        const url360 = queryString ? 
-            `${baseUrl}/proxy-360/${type}/${id}?${queryString}` : 
-            `${baseUrl}/proxy-360/${type}/${id}`;
-        const url720 = queryString ? 
-            `${baseUrl}/proxy-720/${type}/${id}?${queryString}` : 
-            `${baseUrl}/proxy-720/${type}/${id}`;
-        
-        // Restituisci multiple opzioni di qualità
-        res.json({
-            streams: [
-                {
-                    url: proxyUrl,
-                    title: '🎬 OMG YouTube - Alta Qualità (≥1080p)',
-                    ytId: videoId,
-                    quality: '1440p+',
-                    format: 'hls'
-                },
-                {
-                    url: url720,
-                    title: '📺 OMG YouTube - Media Qualità (720p)',
-                    ytId: videoId,
-                    quality: '720p',
-                    format: 'hls'
-                },
-                {
-                    url: url360,
-                    title: '📱 OMG YouTube - Bassa Qualità (≤360p)',
-                    ytId: videoId,
-                    quality: '360p',
-                    format: 'hls'
+        try {
+            // Interroga yt-dlp per i formati disponibili
+            console.log(`   🔍 Recupero formati disponibili per ${videoId}...`);
+            const videoInfo = await getVideoFormats(videoId);
+            
+            if (!videoInfo || !videoInfo.formats) {
+                console.log(`   ❌ Nessun formato disponibile per ${videoId}`);
+                throw new Error('Formati non disponibili');
+            }
+            
+            // Filtra e ordina i formati video utilizzabili
+            const availableFormats = videoInfo.formats
+                .filter(format => {
+                    // Include tutti i formati con video valido
+                    return (format.vcodec && 
+                           format.vcodec !== 'none' && 
+                           format.height && 
+                           format.height >= 144 &&
+                           (format.ext === 'mp4' || format.ext === 'webm')); // Solo MP4 e WebM
+                })
+                .sort((a, b) => {
+                    // Ordina per: 1) Presenza audio, 2) Qualità video
+                    const aHasAudio = a.acodec && a.acodec !== 'none' ? 1 : 0;
+                    const bHasAudio = b.acodec && b.acodec !== 'none' ? 1 : 0;
+                    if (aHasAudio !== bHasAudio) return bHasAudio - aHasAudio;
+                    return (b.height || 0) - (a.height || 0);
+                })
+                .slice(0, 10); // Massimo 10 formati
+            
+            console.log(`   ✅ ${availableFormats.length} formati video disponibili`);
+            
+            // Genera i stream per ogni formato disponibile
+            const streams = availableFormats.map((format, index) => {
+                const formatUrl = queryString ? 
+                    `${baseUrl}/proxy-format/${type}/${id}/${format.format_id}?${queryString}` : 
+                    `${baseUrl}/proxy-format/${type}/${id}/${format.format_id}`;
+                
+                // Determina il titolo basato sulla qualità
+                let qualityTitle = '';
+                let qualityIcon = '';
+                if (format.height >= 2160) {
+                    qualityTitle = '4K';
+                    qualityIcon = '👑';
+                } else if (format.height >= 1440) {
+                    qualityTitle = '1440p';
+                    qualityIcon = '💎';
+                } else if (format.height >= 1080) {
+                    qualityTitle = '1080p';
+                    qualityIcon = '🎬';
+                } else if (format.height >= 720) {
+                    qualityTitle = '720p';
+                    qualityIcon = '📺';
+                } else if (format.height >= 480) {
+                    qualityTitle = '480p';
+                    qualityIcon = '📱';
+                } else {
+                    qualityTitle = `${format.height}p`;
+                    qualityIcon = '📱';
                 }
-            ]
-        });
+                
+                // Informazioni aggiuntive sul formato
+                const hasAudio = format.acodec && format.acodec !== 'none';
+                const codec = format.vcodec ? format.vcodec.split('.')[0].toUpperCase() : 'MP4';
+                const audioInfo = hasAudio ? '+Audio' : '';
+                const sizeInfo = format.filesize ? 
+                    ` (${(format.filesize / 1024 / 1024).toFixed(0)}MB)` : '';
+                
+                return {
+                    url: formatUrl,
+                    title: `${qualityIcon} OMG YouTube - ${qualityTitle} ${codec}${audioInfo}${sizeInfo}`,
+                    ytId: videoId,
+                    quality: qualityTitle,
+                    format: format.ext || 'mp4',
+                    formatId: format.format_id,
+                    resolution: `${format.width || '?'}x${format.height || '?'}`,
+                    fps: format.fps || 30,
+                    vcodec: format.vcodec || 'unknown',
+                    acodec: hasAudio ? format.acodec : 'none',
+                    filesize: format.filesize || 0
+                };
+            });
+            
+            // Log dei formati per debug
+            streams.slice(0, 3).forEach((stream, i) => {
+                console.log(`   ${i + 1}. ${stream.title}`);
+                console.log(`      Format ID: ${stream.formatId}, Resolution: ${stream.resolution}`);
+            });
+            
+            res.json({ streams });
+            
+        } catch (formatError) {
+            console.error(`   ❌ Errore recupero formati per ${videoId}:`, formatError.message);
+            
+            // Fallback ai 3 formati fissi se yt-dlp fallisce
+            console.log(`   🔄 Fallback ai formati fissi per ${videoId}`);
+            
+            const proxyUrl = queryString ? 
+                `${baseUrl}/proxy/${type}/${id}?${queryString}` : 
+                `${baseUrl}/proxy/${type}/${id}`;
+            const url720 = queryString ? 
+                `${baseUrl}/proxy-720/${type}/${id}?${queryString}` : 
+                `${baseUrl}/proxy-720/${type}/${id}`;
+            const url360 = queryString ? 
+                `${baseUrl}/proxy-360/${type}/${id}?${queryString}` : 
+                `${baseUrl}/proxy-360/${type}/${id}`;
+            
+            res.json({
+                streams: [
+                    {
+                        url: proxyUrl,
+                        title: '🎬 OMG YouTube - Alta Qualità (Auto)',
+                        ytId: videoId,
+                        quality: 'Auto',
+                        format: 'mp4'
+                    },
+                    {
+                        url: url720,
+                        title: '📺 OMG YouTube - Media Qualità (Auto)',
+                        ytId: videoId,
+                        quality: 'Auto',
+                        format: 'mp4'
+                    },
+                    {
+                        url: url360,
+                        title: '📱 OMG YouTube - Bassa Qualità (Auto)',
+                        ytId: videoId,
+                        quality: 'Auto',
+                        format: 'mp4'
+                    }
+                ]
+            });
+        }
         
     } catch (error) {
-        console.error('Stream error:', error.message);
+        console.error('Stream endpoint error:', error.message);
         res.status(500).json({ error: 'Errore nel recupero dello stream' });
     }
 });
@@ -893,18 +961,25 @@ app.get('/meta/:type/:id.json', async (req, res) => {
     }
 });
 
-// Endpoint proxy per diverse qualità
+// Endpoint proxy per formato specifico (NUOVO)
+app.get('/proxy-format/:type/:id/:formatId', async (req, res) => {
+    const { formatId } = req.params;
+    console.log(`🎯 Streaming formato specifico: ${formatId}`);
+    return handleProxyStream(req, res, formatId);
+});
+
+// Endpoint proxy per diverse qualità (LEGACY - mantenuti per compatibilità)
 app.get('/proxy-360/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'worst[height>=240]/worst');
+    return handleProxyStream(req, res, 'best[height<=360]/worst');
 });
 
 app.get('/proxy-720/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=720]/best');
+    return handleProxyStream(req, res, 'best[height<=720][height>480]/best[height<=720]/136+249/135+250');
 });
 
-// Nuovo endpoint per streaming proxy diretto (qualità massima ≥1080p)
+// Nuovo endpoint per streaming proxy diretto (qualità massima ≥1080p)  
 app.get('/proxy/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best');
+    return handleProxyStream(req, res, 'best[height>=1080]/299+250/best');
 });
 
 // Funzione condivisa per gestire il proxy streaming
@@ -934,9 +1009,14 @@ async function handleProxyStream(req, res, quality) {
         // Crea lo stream del video con qualità specifica
         const videoStream = await createVideoStreamWithQuality(videoId, quality);
         
-        // Gestisci gli errori dello stream
+        // Gestisci gli errori dello stream con migliore logging
         videoStream.on('error', (error) => {
-            console.error(`Video stream error per ${videoId}:`, error.message);
+            if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
+                console.log(`🔌 Cliente disconnesso durante streaming per ${videoId}: ${error.code}`);
+            } else {
+                console.error(`❌ Video stream error per ${videoId}:`, error.message);
+            }
+            
             if (!res.headersSent) {
                 res.status(500).json({ error: 'Errore nello streaming del video' });
             } else {
@@ -944,19 +1024,37 @@ async function handleProxyStream(req, res, quality) {
             }
         });
         
+        // Gestisci la chiusura della connessione client
+        req.on('close', () => {
+            console.log(`🔌 Client disconnesso per video: ${videoId}`);
+            if (videoStream && typeof videoStream.destroy === 'function') {
+                videoStream.destroy();
+            }
+        });
+
+        req.on('aborted', () => {
+            console.log(`⏹️  Richiesta annullata per video: ${videoId}`);
+            if (videoStream && typeof videoStream.destroy === 'function') {
+                videoStream.destroy();
+            }
+        });
+        
+        // Gestisci errori nella pipe
+        res.on('error', (error) => {
+            if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
+                console.log(`🔌 Connessione interrotta per ${videoId}: ${error.code}`);
+            } else {
+                console.error(`❌ Response error per ${videoId}:`, error.message);
+            }
+        });
+        
         // Inoltra lo stream alla risposta
         videoStream.pipe(res);
-        console.log(`Stream avviato per ${videoId} - Client connesso`);
-        
-        // Gestisci la chiusura della connessione
-        req.on('close', () => {
-            console.log(`Client disconnesso per video: ${videoId}`);
-            videoStream.destroy();
-        });
+        console.log(`🎬 Stream avviato per ${videoId} - Client connesso`);
         
         // Gestisci la fine della risposta
         res.on('finish', () => {
-            console.log(`Stream completato per ${videoId} - Risposta inviata`);
+            console.log(`✅ Stream completato per ${videoId} - Risposta inviata`);
         });
         
     } catch (error) {
@@ -979,6 +1077,31 @@ app.get('/api/channels', (req, res) => {
 });
 
 
+
+// Endpoint per verificare la quota API rapido (consumo minimo)
+app.post('/api/check-quota', async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        
+        if (!apiKey || apiKey.trim() === '') {
+            return res.json({
+                valid: false,
+                message: 'API Key non fornita'
+            });
+        }
+        
+        const quotaStatus = await checkApiQuotaStatus(apiKey.trim());
+        res.json(quotaStatus);
+        
+    } catch (error) {
+        console.error('Quota check error:', error.message);
+        res.json({
+            valid: false,
+            message: 'Errore interno del server',
+            error: 'INTERNAL_ERROR'
+        });
+    }
+});
 
 // Endpoint per verificare l'API Key YouTube
 app.post('/api/verify-api-key', async (req, res) => {

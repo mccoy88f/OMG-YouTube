@@ -73,6 +73,11 @@ async function getVideoMetadata(apiKey, videoId) {
 }
 
 async function searchVideos({ apiKey, query, maxResults = 50 }) {
+	// Controllo quota prima della richiesta
+	if (!apiKey || apiKey.trim() === '') {
+		throw new Error('API Key non configurata');
+	}
+
 	const params = {
 		part: 'snippet',
 		q: query,
@@ -84,8 +89,25 @@ async function searchVideos({ apiKey, query, maxResults = 50 }) {
 		videoEmbeddable: 'any',
 		safeSearch: 'none'
 	};
-	const { data } = await axios.get(`${YT_API_BASE}/search`, { params });
-	return (data.items || []).map(toVideoMeta);
+
+	try {
+		const { data } = await axios.get(`${YT_API_BASE}/search`, { params });
+		return (data.items || []).map(toVideoMeta);
+	} catch (error) {
+		// Gestione specifica degli errori API YouTube
+		if (error.response && error.response.status === 403) {
+			const errorData = error.response.data;
+			if (errorData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+				throw new Error('QUOTA_EXCEEDED: Quota API YouTube esaurita. Riprova domani o usa una nuova API Key.');
+			} else if (errorData?.error?.errors?.[0]?.reason === 'keyInvalid') {
+				throw new Error('INVALID_KEY: API Key non valida. Verifica la configurazione.');
+			} else {
+				throw new Error(`API_ERROR: ${errorData?.error?.message || 'Errore API YouTube'}`);
+			}
+		}
+		// Altri errori di rete
+		throw new Error(`NETWORK_ERROR: ${error.message}`);
+	}
 }
 
 // Nuova funzione per cercare video specifici per ID
@@ -153,6 +175,10 @@ async function fetchChannelTitleAndThumb({ apiKey, channelId }) {
 }
 
 async function fetchChannelLatestVideos({ apiKey, channelId, maxResults = 50 }) {
+	if (!apiKey || apiKey.trim() === '') {
+		throw new Error('API Key non configurata');
+	}
+
 	const params = {
 		part: 'snippet',
 		channelId,
@@ -161,11 +187,72 @@ async function fetchChannelLatestVideos({ apiKey, channelId, maxResults = 50 }) 
 		maxResults: Math.min(50, maxResults),
 		key: apiKey
 	};
-	const { data } = await axios.get(`${YT_API_BASE}/search`, { params });
-	const base = (data.items || []).map(toVideoMeta);
-	// Enrich with channel thumb/title
-	const extra = await fetchChannelTitleAndThumb({ apiKey, channelId });
-	return base.map((v) => ({ ...v, ...extra }));
+
+	try {
+		const { data } = await axios.get(`${YT_API_BASE}/search`, { params });
+		const base = (data.items || []).map(toVideoMeta);
+		// Enrich with channel thumb/title
+		const extra = await fetchChannelTitleAndThumb({ apiKey, channelId });
+		return base.map((v) => ({ ...v, ...extra }));
+	} catch (error) {
+		// Gestione specifica degli errori API YouTube
+		if (error.response && error.response.status === 403) {
+			const errorData = error.response.data;
+			if (errorData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+				throw new Error('QUOTA_EXCEEDED: Quota API YouTube esaurita. Riprova domani o usa una nuova API Key.');
+			}
+		}
+		throw error; // Re-lancia altri errori
+	}
+}
+
+// Funzione per controllare lo stato della quota API (consumo minimo)
+async function checkApiQuotaStatus(apiKey) {
+	if (!apiKey || apiKey.trim() === '') {
+		return { valid: false, error: 'API Key non configurata' };
+	}
+
+	try {
+		// Usa una richiesta con costo minimo (1 unità invece di 100)
+		const { data } = await axios.get(`${YT_API_BASE}/channels`, {
+			params: {
+				part: 'snippet',
+				mine: true,
+				key: apiKey,
+				maxResults: 1
+			}
+		});
+		
+		return { 
+			valid: true, 
+			quotaRemaining: 'OK',
+			message: 'API Key funzionante'
+		};
+	} catch (error) {
+		if (error.response && error.response.status === 403) {
+			const errorData = error.response.data;
+			if (errorData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+				return { 
+					valid: false, 
+					quotaRemaining: 0,
+					error: 'QUOTA_EXCEEDED',
+					message: 'Quota API YouTube esaurita. Riprova domani o usa una nuova API Key.'
+				};
+			} else if (errorData?.error?.errors?.[0]?.reason === 'keyInvalid') {
+				return { 
+					valid: false, 
+					error: 'INVALID_KEY',
+					message: 'API Key non valida. Verifica la configurazione.'
+				};
+			}
+		}
+		
+		return { 
+			valid: false, 
+			error: 'UNKNOWN',
+			message: `Errore nella verifica: ${error.message}`
+		};
+	}
 }
 
 module.exports = {
@@ -174,7 +261,8 @@ module.exports = {
 	getVideoMetadata,
 	getChannelIdFromInput,
 	fetchChannelLatestVideos,
-	fetchChannelTitleAndThumb
+	fetchChannelTitleAndThumb,
+	checkApiQuotaStatus
 };
 
 
