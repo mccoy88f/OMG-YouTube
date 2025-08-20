@@ -57,7 +57,7 @@ function buildManifest(req = null) {
         contactEmail: 'admin@omg-youtube.com',
         catalogs: [
             {
-                type: 'movie',
+                                        type: 'channel',
                 id: 'omg-youtube-search',
                 name: 'Ricerca YouTube',
                 extra: [
@@ -65,7 +65,7 @@ function buildManifest(req = null) {
                 ]
             },
             {
-                type: 'movie',
+                                        type: 'channel',
                 id: 'omg-youtube-followed',
                 name: 'YouTube Canali Seguiti',
                 extra: [
@@ -192,7 +192,7 @@ function buildManifestFromConfig(config, req = null) {
     
     return {
         id: 'com.omg.youtube',
-        name: 'OMG YouTube',
+        name: 'YouTube (OMG)',
         description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
         version: '1.0.0',
         logo: `${baseUrl}/favicon.png`,
@@ -200,7 +200,7 @@ function buildManifestFromConfig(config, req = null) {
         contactEmail: 'admin@omg-youtube.com',
         catalogs: [
             {
-                type: 'movie',
+                type: 'channel',
                 id: 'omg-youtube-search',
                 name: 'Ricerca YouTube',
                 extra: [
@@ -208,7 +208,7 @@ function buildManifestFromConfig(config, req = null) {
                 ]
             },
             {
-                type: 'movie',
+                type: 'channel',
                 id: 'omg-youtube-followed',
                 name: 'YouTube Canali Seguiti',
                 extra: [
@@ -221,7 +221,7 @@ function buildManifestFromConfig(config, req = null) {
             'stream',
             'meta'
         ],
-        types: ['movie'],
+        types: ['channel'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
         configuration: `${baseUrl}/`,
@@ -306,7 +306,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             config = loadConfig();
         }
         
-        if (type === 'movie' && id === 'omg-youtube-search') {
+        if (type === 'channel' && id === 'omg-youtube-search') {
             // Ricerca video YouTube
             let searchQuery = extra ? decodeURIComponent(extra) : '';
             // Estrai solo la query dalla stringa "search=query"
@@ -343,7 +343,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 
                 const metas = videos.map(video => ({
                     id: `yt_${video.id}`,
-                    type: 'movie',
+                    type: 'channel',
                     name: video.title,
                     description: video.description,
                     poster: video.thumbnail,
@@ -389,7 +389,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                         
                         const metas = videos.map(video => ({
                             id: `yt_${video.id}`,
-                            type: 'movie',
+                            type: 'channel',
                             name: video.title,
                             description: video.description,
                             poster: video.thumbnail,
@@ -432,7 +432,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 res.json({ metas: [] });
             }
             
-        } else if (type === 'movie' && id === 'omg-youtube-followed') {
+        } else if (type === 'channel' && id === 'omg-youtube-followed') {
             // Canali seguiti - YouTube Discover
             const channels = config.channels || [];
             
@@ -517,7 +517,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                 // Crea i meta objects come per la ricerca (tipo movie, non episode)
                 const metas = finalVideos.map(video => ({
                     id: `yt_${video.id}`,
-                    type: 'movie',  // ✅ Consistente con la ricerca
+                    type: 'channel',  // ✅ Consistente con la ricerca
                     name: video.title,
                     description: video.description,
                     poster: video.thumbnail,
@@ -605,29 +605,37 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 throw new Error('Lista formati vuota');
             }
             
-            // Filtra e ordina i formati video utilizzabili (include formati video-only per yt-dlp merge)
+            // Filtra formati utilizzabili: MP4 completi + HLS quando disponibili
             const availableFormats = videoInfo.formats
                 .filter(format => {
-                    // REQUISITI: video valido + formato supportato
-                    return (format.vcodec && 
-                           format.vcodec !== 'none' && 
-                           format.height && 
-                           format.height >= 240 &&    // Qualità minima 240p
-                           (format.ext === 'mp4' || format.ext === 'webm')); // MP4 e WebM
+                    // Strategia: MP4 completi (audio+video) O HLS nativi
+                    const isMp4Complete = (
+                        format.ext === 'mp4' && 
+                        format.vcodec && format.vcodec !== 'none' &&
+                        format.acodec && format.acodec !== 'none' &&
+                        format.protocol === 'https' &&
+                        format.height >= 240
+                    );
+                    
+                    const isHLS = (
+                        format.protocol === 'm3u8_native' &&
+                        format.url && format.url.includes('index.m3u8') &&
+                        format.height >= 240
+                    );
+                    
+                    return isMp4Complete || isHLS;
                 })
                 .sort((a, b) => {
-                    // Priorità: 1) Formati con audio, 2) Formato MP4, 3) Qualità video
-                    const aHasAudio = (a.acodec && a.acodec !== 'none') ? 2 : 0;
-                    const bHasAudio = (b.acodec && b.acodec !== 'none') ? 2 : 0;
-                    if (aHasAudio !== bHasAudio) return bHasAudio - aHasAudio;
+                    // Priorità: 1) MP4 completi, 2) HLS, 3) Qualità video
+                    const aScore = (a.ext === 'mp4' && a.acodec !== 'none') ? 3 : 
+                                  (a.protocol === 'm3u8_native') ? 2 : 1;
+                    const bScore = (b.ext === 'mp4' && b.acodec !== 'none') ? 3 : 
+                                  (b.protocol === 'm3u8_native') ? 2 : 1;
                     
-                    const aIsMp4 = a.ext === 'mp4' ? 1 : 0;
-                    const bIsMp4 = b.ext === 'mp4' ? 1 : 0;
-                    if (aIsMp4 !== bIsMp4) return bIsMp4 - aIsMp4;
-                    
+                    if (aScore !== bScore) return bScore - aScore;
                     return (b.height || 0) - (a.height || 0);
                 })
-                .slice(0, 8); // Massimo 8 formati
+                .slice(0, 6); // Massimo 6 formati di qualità
             
             console.log(`   ✅ ${availableFormats.length} formati video disponibili su ${videoInfo.formats.length} totali`);
             
@@ -639,11 +647,10 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 throw new Error('Nessun formato video utilizzabile');
             }
             
-            // Genera i stream per ogni formato disponibile
+            // Genera i stream usando URL diretti (no proxy)
             const streams = availableFormats.map((format, index) => {
-                const formatUrl = queryString ? 
-                    `${baseUrl}/proxy-format/${type}/${id}/${format.format_id}?${queryString}` : 
-                    `${baseUrl}/proxy-format/${type}/${id}/${format.format_id}`;
+                // Usa l'URL diretto di YouTube (MP4 o HLS)
+                const directUrl = format.url;
                 
                 // Determina il titolo basato sulla qualità
                 let qualityTitle = '';
@@ -669,15 +676,14 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 }
                 
                 // Informazioni aggiuntive sul formato
-                const hasAudio = format.acodec && format.acodec !== 'none';
+                const isMP4 = format.ext === 'mp4' && format.acodec !== 'none';
+                const isHLS = format.protocol === 'm3u8_native';
+                const streamType = isMP4 ? ' 🎵' : isHLS ? ' 📡' : ' 📹';
                 const codec = format.vcodec ? format.vcodec.split('.')[0].toUpperCase() : 'MP4';
-                const audioInfo = hasAudio ? ' ♪' : ' 📹'; // Nota musicale se ha audio, icona video se solo video
-                const sizeInfo = format.filesize ? 
-                    ` (${(format.filesize / 1024 / 1024).toFixed(0)}MB)` : '';
                 
                 return {
-                    url: formatUrl,
-                    title: `${qualityIcon} OMG YouTube - ${qualityTitle} ${codec}${audioInfo}${sizeInfo}`,
+                    url: directUrl,
+                    title: `${qualityIcon} OMG YouTube - ${qualityTitle} ${codec}${streamType}`,
                     ytId: videoId,
                     quality: qualityTitle,
                     format: format.ext || 'mp4',
@@ -685,7 +691,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                     resolution: `${format.width || '?'}x${format.height || '?'}`,
                     fps: format.fps || 30,
                     vcodec: format.vcodec || 'unknown',
-                    acodec: hasAudio ? format.acodec : 'none',
+                    acodec: isMP4 ? format.acodec : (isHLS ? 'included' : 'none'),
                     filesize: format.filesize || 0
                 };
             });
@@ -718,21 +724,21 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 streams: [
                     {
                         url: proxyUrl,
-                        title: '🎬 OMG YouTube - Alta Qualità (Auto)',
+                        title: '🎬 OMG YouTube - Alta Qualità (legacy)',
                         ytId: videoId,
                         quality: 'Auto',
                         format: 'mp4'
                     },
                     {
                         url: url720,
-                        title: '📺 OMG YouTube - Media Qualità (Auto)',
+                        title: '📺 OMG YouTube - Media Qualità (legacy)',
                         ytId: videoId,
                         quality: 'Auto',
                         format: 'mp4'
                     },
                     {
                         url: url360,
-                        title: '📱 OMG YouTube - Bassa Qualità (Auto)',
+                        title: '📱 OMG YouTube - Bassa Qualità (legacy)',
                         ytId: videoId,
                         quality: 'Auto',
                         format: 'mp4'
@@ -873,7 +879,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                     // Costruisci i metadati nel formato richiesto da Stremio
                     const meta = {
                         id: `yt_${videoId}`,
-                        type: 'movie',
+                        type: 'channel',
                         name: videoInfo.title || `Video ${videoId}`,
                         description: videoInfo.description || 'Video YouTube',
                         poster: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
@@ -934,7 +940,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                 if (video) {
                     const meta = {
                         id: `yt_${videoId}`,
-                        type: 'movie',
+                        type: 'channel',
                         name: video.title || `Video ${videoId}`,
                         description: video.description || 'Video YouTube',
                         poster: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
@@ -964,7 +970,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                     // Se non troviamo nulla, restituisci metadati minimi
                     const fallbackMeta = {
                         id: `yt_${videoId}`,
-                        type: 'movie',
+                        type: 'channel',
                         name: `Video YouTube ${videoId}`,
                         description: 'Video YouTube',
                         poster: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
@@ -998,7 +1004,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                 // Ultimo fallback: metadati minimi
                 const minimalMeta = {
                     id: `yt_${videoId}`,
-                    type: 'movie',
+                    type: 'channel',
                     name: `Video YouTube ${videoId}`,
                     description: 'Video YouTube',
                     poster: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
@@ -1777,7 +1783,7 @@ function buildFrontendHTML(req = null) {
             
             <div class="url-display">
                 <h4>🎬 Esempio Endpoint Proxy</h4>
-                <div class="url" id="proxyUrl">${baseUrl}/proxy/movie/yt_VIDEO_ID</div>
+                <div class="url" id="proxyUrl">${baseUrl}/proxy/channel/yt_VIDEO_ID</div>
                 <button class="copy-btn" onclick="copyProxyUrl()">Copia</button>
             </div>
             
