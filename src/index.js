@@ -17,13 +17,19 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use(morgan('dev'));
 
-function buildManifest() {
+function buildManifest(req = null) {
     const config = loadConfig();
     const channelNames = config.channels && config.channels.length > 0 
         ? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
         : [];
     
-    const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+    // Rileva automaticamente baseUrl dalla richiesta se disponibile
+    let baseUrl = 'http://localhost:3100'; // fallback
+    if (req) {
+        const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+        const host = req.get('x-forwarded-host') || req.get('host');
+        baseUrl = `${protocol}://${host}`;
+    }
     
     // Costruisci configurazione codificata in base64 per Stremio
     let manifestUrl = `${baseUrl}/manifest.json`;
@@ -45,8 +51,8 @@ function buildManifest() {
         name: 'OMG YouTube',
         description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
         version: '1.0.0',
-        logo: 'http://localhost:3100/favicon.png',
-        background: 'http://localhost:3100/favicon.png',
+        logo: `${baseUrl}/favicon.png`,
+        background: `${baseUrl}/favicon.png`,
         contactEmail: 'admin@omg-youtube.com',
         catalogs: [
             {
@@ -74,9 +80,9 @@ function buildManifest() {
         types: ['movie', 'channel'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
-        configuration: 'http://localhost:3100/',
+        configuration: `${baseUrl}/`,
         // Endpoint proxy per streaming
-        proxy: 'http://localhost:3100/proxy',
+        proxy: `${baseUrl}/proxy`,
         // Comportamenti per Stremio
         behaviorHints: {
             configurable: true,
@@ -141,13 +147,13 @@ app.get('/manifest.json', (req, res) => {
         }
         
         // Genera manifest dinamico con la configurazione temporanea
-        const manifest = buildManifestFromConfig(tempConfig);
+        const manifest = buildManifestFromConfig(tempConfig, req);
         
         res.json(manifest);
     } catch (error) {
         console.error('Manifest error:', error.message);
         // Fallback al manifest base se ci sono errori
-        res.json(buildManifestFromConfig({}));
+        res.json(buildManifestFromConfig({}, req));
     }
 });
 
@@ -170,20 +176,26 @@ function extractChannelNameFromUrl(url) {
 }
 
 // Funzione per generare manifest da configurazione specifica
-function buildManifestFromConfig(config) {
+function buildManifestFromConfig(config, req = null) {
     const channelNames = config.channels && config.channels.length > 0 
         ? config.channels.map(ch => ch.name || ch.url).filter(Boolean)
         : [];
     
-    const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+    // Rileva automaticamente baseUrl dalla richiesta se disponibile
+    let baseUrl = 'http://localhost:3100'; // fallback
+    if (req) {
+        const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+        const host = req.get('x-forwarded-host') || req.get('host');
+        baseUrl = `${protocol}://${host}`;
+    }
     
     return {
         id: 'com.omg.youtube',
         name: 'OMG YouTube',
         description: 'Addon YouTube per Stremio con ricerca e canali seguiti',
         version: '1.0.0',
-        logo: 'http://localhost:3100/favicon.png',
-        background: 'http://localhost:3100/favicon.png',
+        logo: `${baseUrl}/favicon.png`,
+        background: `${baseUrl}/favicon.png`,
         contactEmail: 'admin@omg-youtube.com',
         catalogs: [
             {
@@ -211,9 +223,9 @@ function buildManifestFromConfig(config) {
         types: ['movie', 'channel'],
         idPrefixes: ['yt'],
         // URL di configurazione per Stremio (senza parametri)
-        configuration: 'http://localhost:3100/',
+        configuration: `${baseUrl}/`,
         // Endpoint proxy per streaming
-        proxy: 'http://localhost:3100/proxy',
+        proxy: `${baseUrl}/proxy`,
         // Comportamenti per Stremio
         behaviorHints: {
             configurable: true,
@@ -388,10 +400,10 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     type: 'series',
                     name: c.channelTitle || c.name,
                     description: `Canale: ${c.channelTitle || c.name}`,
-                    poster: c.channelThumbnail || 'http://localhost:3100/favicon.png',
+                    poster: c.channelThumbnail || `${baseUrl}/favicon.png`,
                     posterShape: 'square',
-                    logo: c.channelThumbnail || 'http://localhost:3100/favicon.png',
-                    background: c.channelThumbnail || 'http://localhost:3100/favicon.png',
+                    logo: c.channelThumbnail || `${baseUrl}/favicon.png`,
+                    background: c.channelThumbnail || `${baseUrl}/favicon.png`,
                     genre: ['YouTube'],
                     releaseInfo: 'Canale seguito',
                     director: c.name,
@@ -541,7 +553,10 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
         
-        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+        // Rileva automaticamente baseUrl dalla richiesta
+        const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+        const host = req.get('x-forwarded-host') || req.get('host');
+        const baseUrl = `${protocol}://${host}`;
         
         // Passa i parametri di configurazione al proxy
         const queryString = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
@@ -1129,7 +1144,10 @@ app.get('/configure', (req, res) => {
             configParams.set('channels', channelsData);
         }
         
-        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+        // Rileva automaticamente baseUrl dalla richiesta
+        const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+        const host = req.get('x-forwarded-host') || req.get('host');
+        const baseUrl = `${protocol}://${host}`;
         const configUrl = `${baseUrl}/configure?${configParams.toString()}`;
         
         // Codifica l'URL in base64
@@ -1196,7 +1214,10 @@ app.get('/:encodedConfig/configure', (req, res) => {
             manifestParams.set('channels', channelsData);
         }
         
-        const baseUrl = process.env.PUBLIC_HOST || 'http://localhost:3100';
+        // Rileva automaticamente baseUrl dalla richiesta
+        const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+        const host = req.get('x-forwarded-host') || req.get('host');
+        const baseUrl = `${protocol}://${host}`;
         const manifestUrl = `${baseUrl}/manifest.json?${manifestParams.toString()}`;
         
         // Restituisci solo i dati JSON, non l'interfaccia HTML
@@ -1218,7 +1239,14 @@ app.get('/:encodedConfig/configure', (req, res) => {
 
 // Admin UI
 // Funzione per generare HTML del frontend
-function buildFrontendHTML() {
+function buildFrontendHTML(req = null) {
+    // Rileva automaticamente baseUrl dalla richiesta se disponibile
+    let baseUrl = 'http://localhost:3100'; // fallback
+    if (req) {
+        const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+        const host = req.get('x-forwarded-host') || req.get('host');
+        baseUrl = `${protocol}://${host}`;
+    }
     return `
 <!DOCTYPE html>
 <html lang="it">
@@ -1458,7 +1486,7 @@ function buildFrontendHTML() {
             
             <div class="url-display">
                 <h4>📋 URL Manifest (per Stremio) - DINAMICO</h4>
-                <div class="url" id="manifestUrl">http://localhost:3100/manifest.json</div>
+                <div class="url" id="manifestUrl">${baseUrl}/manifest.json</div>
                 <button class="copy-btn" onclick="copyManifest()">Copia</button>
             </div>
             
@@ -1470,7 +1498,7 @@ function buildFrontendHTML() {
             
             <div class="url-display">
                 <h4>🎬 Esempio Endpoint Proxy</h4>
-                <div class="url" id="proxyUrl">http://localhost:3100/proxy/movie/yt_VIDEO_ID</div>
+                <div class="url" id="proxyUrl">${baseUrl}/proxy/movie/yt_VIDEO_ID</div>
                 <button class="copy-btn" onclick="copyProxyUrl()">Copia</button>
             </div>
             
@@ -1852,7 +1880,7 @@ function buildFrontendHTML() {
 
 // Admin UI route
 app.get('/', (req, res) => {
-    res.send(buildFrontendHTML());
+    res.send(buildFrontendHTML(req));
 });
 
 app.listen(APP_PORT, () => {
