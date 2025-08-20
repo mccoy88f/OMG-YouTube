@@ -581,7 +581,34 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         console.log(`🎬 Stream request per video: ${videoId}`);
         console.log(`   Tipo: ${type}, ID: ${id}`);
         console.log(`   URL completo: ${req.originalUrl}`);
-        console.log(`   🔧 Modalità stream: ${config.streamMode || 'simple'}`);
+        
+        // Inizializza configurazione con valori di default
+        let config = { 
+            apiKey: '', 
+            channels: [], 
+            extractionLimit: 25, 
+            searchMode: 'api', 
+            streamMode: 'simple' 
+        };
+        
+        // Leggi configurazione da query parameters
+        if (req.query.config) {
+            try {
+                const configJson = Buffer.from(req.query.config, 'base64').toString('utf8');
+                const configData = JSON.parse(configJson);
+                
+                config.apiKey = configData.apiKey || '';
+                config.channels = Array.isArray(configData.channels) ? configData.channels : [];
+                config.extractionLimit = configData.extractionLimit || 25;
+                config.searchMode = configData.searchMode || 'api';
+                config.streamMode = configData.streamMode || 'simple';
+            } catch (error) {
+                console.log(`   ❌ Errore parsing configurazione:`, error.message);
+                // Usa configurazione di default
+            }
+        }
+        
+        console.log(`   🔧 Modalità stream: ${config.streamMode}`);
         
         // Rileva automaticamente baseUrl dalla richiesta
         const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
