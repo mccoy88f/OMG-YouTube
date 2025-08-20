@@ -212,7 +212,7 @@ function buildManifestFromConfig(config, req = null) {
                 id: 'omg-youtube-followed',
                 name: 'YouTube Canali Seguiti',
                 extra: [
-                    { name: 'genre', isRequired: false, options: ['Tutti i canali'].concat(channelNames) }
+                    { name: 'genre', isRequired: false, options: channelNames }
                 ]
             }
         ],
@@ -351,7 +351,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     logo: video.channelThumbnail,
                     background: video.thumbnail,
                     genre: ['YouTube'],
-                    releaseInfo: video.publishedAt,
+                    releaseInfo: video.duration || 'YouTube',
                     director: video.channelTitle,
                     cast: [video.channelTitle],
                     country: 'YouTube',
@@ -397,7 +397,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                             logo: video.channelThumbnail,
                             background: video.thumbnail,
                             genre: ['YouTube'],
-                            releaseInfo: video.publishedAt,
+                            releaseInfo: video.duration || 'YouTube',
                             director: video.channelTitle,
                             cast: [video.channelTitle],
                             country: 'YouTube',
@@ -443,11 +443,11 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
             
             console.log(`🎬 YouTube Discover richiesto`);
             console.log(`   📺 Canali configurati: ${channels.length}`);
-            console.log(`   🔍 Filtro: ${extra || 'Tutti i canali'}`);
+            console.log(`   🔍 Filtro: ${extra || 'Tutti'}`);
             
             // Determina quali canali interrogare
             let channelsToQuery = channels;
-            if (extra && extra !== 'genre=Tutti%20i%20canali' && extra !== 'Tutti i canali') {
+            if (extra) {
                 // Estrai il nome del canale dal filtro
                 let filterName = decodeURIComponent(extra);
                 if (filterName.includes('genre=')) {
@@ -525,7 +525,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
                     logo: video.channelThumbnail,
                     background: video.thumbnail,
                     genre: ['YouTube', video.channelTitle],  // Include il nome del canale
-                    releaseInfo: video.publishedAt,
+                    releaseInfo: video.duration || 'YouTube',
                     director: video.channelTitle,
                     cast: [video.channelTitle],
                     country: 'YouTube',
@@ -678,12 +678,13 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 // Informazioni aggiuntive sul formato
                 const isMP4 = format.ext === 'mp4' && format.acodec !== 'none';
                 const isHLS = format.protocol === 'm3u8_native';
-                const streamType = isMP4 ? ' 🎵' : isHLS ? ' 📡' : ' 📹';
+                // Tutti i formati selezionati hanno audio - specifichiamo il tipo
+                const streamType = isMP4 ? ' 🎵' : isHLS ? ' 🎵📡' : ' 📹';
                 const codec = format.vcodec ? format.vcodec.split('.')[0].toUpperCase() : 'MP4';
                 
                 return {
                     url: directUrl,
-                    title: `${qualityIcon} OMG YouTube - ${qualityTitle} ${codec}${streamType}`,
+                    title: `${qualityIcon} ${qualityTitle} ${codec}${streamType}`,
                     ytId: videoId,
                     quality: qualityTitle,
                     format: format.ext || 'mp4',
@@ -724,21 +725,21 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 streams: [
                     {
                         url: proxyUrl,
-                        title: '🎬 OMG YouTube - Alta Qualità (legacy)',
+                        title: '🎬 Alta Qualità (legacy)',
                         ytId: videoId,
                         quality: 'Auto',
                         format: 'mp4'
                     },
                     {
                         url: url720,
-                        title: '📺 OMG YouTube - Media Qualità (legacy)',
+                        title: '📺 Media Qualità (legacy)',
                         ytId: videoId,
                         quality: 'Auto',
                         format: 'mp4'
                     },
                     {
                         url: url360,
-                        title: '📱 OMG YouTube - Bassa Qualità (legacy)',
+                        title: '📱 Bassa Qualità (legacy)',
                         ytId: videoId,
                         quality: 'Auto',
                         format: 'mp4'
@@ -887,7 +888,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                         logo: videoInfo.channelThumbnail || videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         background: videoInfo.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         genre: ['YouTube'],
-                        releaseInfo: `${videoInfo.publishedAt} (${videoInfo.duration})`,
+                        releaseInfo: videoInfo.duration || 'YouTube',
                         director: [videoInfo.channelTitle || 'YouTube'],
                         cast: [videoInfo.channelTitle || 'YouTube'],
                         country: 'YouTube',
@@ -948,7 +949,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
                         logo: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         background: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
                         genre: ['YouTube'],
-                        releaseInfo: video.publishedAt || 'YouTube',
+                        releaseInfo: video.duration || 'YouTube',
                         director: video.channelTitle || 'YouTube',
                         cast: [video.channelTitle || 'YouTube'],
                         country: 'YouTube',
