@@ -133,14 +133,17 @@ async function createVideoStreamWithQuality(videoId, quality = 'best') {
             '-o', '-', // Output su stdout
             '--no-playlist',
             '--no-cache-dir',
-            '--no-warnings', // Riduci i warning verbose
-            '--quiet', // Modalità silenziosa per stderr
-            '--buffer-size', '16K', // Buffer ottimizzato per streaming
-            '--http-chunk-size', '10M', // Chunk size per HTTP
-            '--retries', '3', // Retry automatici
-            '--fragment-retries', '3', // Retry per frammenti
-            '--extractor-args', 'youtube:player_client=android,web', // Fallback multipli
+            '--buffer-size', '64K', // Buffer più grande per stabilità
+            '--http-chunk-size', '2M', // Chunk size ridotto per streaming
+            '--retries', '5', // Più retry
+            '--fragment-retries', '5',
+            '--socket-timeout', '60', // Timeout socket aumentato
+            '--retry-sleep', '1', // Pausa tra retry
+            '--merge-output-format', 'mp4', // Forza output MP4
+            '--recode-video', 'mp4', // Ricodifica se necessario
+            '--extractor-args', 'youtube:player_client=android,web,mweb', // Più client
             '--extractor-args', 'youtube:formats=missing_pot', // Abilita formati senza PO token
+            '--no-check-certificates', // Ignora certificati SSL
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
@@ -161,9 +164,22 @@ async function createVideoStreamWithQuality(videoId, quality = 'best') {
 
         ytDlp.stderr.on('data', (data) => {
             const stderrText = data.toString();
-            // Log solo errori critici, non warning verbosi
+            
+            // Gestione errori specifici per migliorare diagnostica
             if (stderrText.includes('ERROR') || stderrText.includes('CRITICAL')) {
-                console.log(`❌ yt-dlp error per ${videoId}: ${stderrText.trim()}`);
+                if (stderrText.includes('Broken pipe')) {
+                    console.log(`🔌 Cliente disconnesso per ${videoId}: Broken pipe`);
+                } else if (stderrText.includes('ffmpeg exited with code 1')) {
+                    console.log(`🎵 Errore audio/video per ${videoId}: ffmpeg fallito (possibile formato incompatibile)`);
+                } else if (stderrText.includes('HTTP Error 403')) {
+                    console.log(`🚫 Accesso negato per ${videoId}: Video potrebbe essere geo-limitato o privato`);
+                } else if (stderrText.includes('Video unavailable')) {
+                    console.log(`📹 Video non disponibile per ${videoId}: Rimosso o privato`);
+                } else if (stderrText.includes('requested format not available')) {
+                    console.log(`📼 Formato non disponibile per ${videoId}: Prova qualità diversa`);
+                } else {
+                    console.log(`❌ yt-dlp error per ${videoId}: ${stderrText.trim()}`);
+                }
             } else if (stderrText.includes('WARNING') && !stderrText.includes('PO Token')) {
                 // Log warning solo se non sono i soliti warning PO Token
                 console.log(`⚠️  yt-dlp warning per ${videoId}: ${stderrText.trim()}`);
@@ -214,6 +230,11 @@ async function getVideoFormats(videoId) {
             '--dump-json',
             '--no-playlist',
             '--no-cache-dir',
+            '--socket-timeout', '30',           // Timeout socket aumentato
+            '--extractor-args', 'youtube:player_client=android,web', // Client multipli per più formati
+            '--extractor-args', 'youtube:formats=missing_pot', // Abilita formati senza PO token
+            '--no-check-certificates',
+            '--quiet',                          // Riduci output verboso
             `https://www.youtube.com/watch?v=${videoId}`
         ]);
 
@@ -275,12 +296,12 @@ async function getVideoFormats(videoId) {
             reject(new Error(`Errore nell'esecuzione di yt-dlp: ${error.message}`));
         });
 
-        // Timeout dopo 30 secondi
+        // Timeout dopo 45 secondi (aumentato per video complessi)
         setTimeout(() => {
             ytDlp.kill();
             console.log(`⏰ Timeout nel recupero formati per video: ${videoId}`);
             reject(new Error('Timeout nel recupero delle informazioni del video'));
-        }, 30000);
+        }, 45000);
     });
 }
 

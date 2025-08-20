@@ -596,30 +596,48 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             const videoInfo = await getVideoFormats(videoId);
             
             if (!videoInfo || !videoInfo.formats) {
-                console.log(`   ❌ Nessun formato disponibile per ${videoId}`);
+                console.log(`   ❌ Nessun formato disponibile per ${videoId}, usando formati legacy`);
                 throw new Error('Formati non disponibili');
             }
             
-            // Filtra e ordina i formati video utilizzabili
+            if (videoInfo.formats.length === 0) {
+                console.log(`   ⚠️ Lista formati vuota per ${videoId}, usando formati legacy`);
+                throw new Error('Lista formati vuota');
+            }
+            
+            // Filtra e ordina i formati video utilizzabili (include formati video-only per yt-dlp merge)
             const availableFormats = videoInfo.formats
                 .filter(format => {
-                    // Include tutti i formati con video valido
+                    // REQUISITI: video valido + formato supportato
                     return (format.vcodec && 
                            format.vcodec !== 'none' && 
                            format.height && 
-                           format.height >= 144 &&
-                           (format.ext === 'mp4' || format.ext === 'webm')); // Solo MP4 e WebM
+                           format.height >= 240 &&    // Qualità minima 240p
+                           (format.ext === 'mp4' || format.ext === 'webm')); // MP4 e WebM
                 })
                 .sort((a, b) => {
-                    // Ordina per: 1) Presenza audio, 2) Qualità video
-                    const aHasAudio = a.acodec && a.acodec !== 'none' ? 1 : 0;
-                    const bHasAudio = b.acodec && b.acodec !== 'none' ? 1 : 0;
+                    // Priorità: 1) Formati con audio, 2) Formato MP4, 3) Qualità video
+                    const aHasAudio = (a.acodec && a.acodec !== 'none') ? 2 : 0;
+                    const bHasAudio = (b.acodec && b.acodec !== 'none') ? 2 : 0;
                     if (aHasAudio !== bHasAudio) return bHasAudio - aHasAudio;
+                    
+                    const aIsMp4 = a.ext === 'mp4' ? 1 : 0;
+                    const bIsMp4 = b.ext === 'mp4' ? 1 : 0;
+                    if (aIsMp4 !== bIsMp4) return bIsMp4 - aIsMp4;
+                    
                     return (b.height || 0) - (a.height || 0);
                 })
-                .slice(0, 10); // Massimo 10 formati
+                .slice(0, 8); // Massimo 8 formati
             
-            console.log(`   ✅ ${availableFormats.length} formati video disponibili`);
+            console.log(`   ✅ ${availableFormats.length} formati video disponibili su ${videoInfo.formats.length} totali`);
+            
+            if (availableFormats.length === 0) {
+                console.log(`   ⚠️ Nessun formato video utilizzabile trovato, dettagli formati disponibili:`);
+                videoInfo.formats.slice(0, 5).forEach(f => {
+                    console.log(`      - ${f.format_id}: ${f.ext} ${f.width}x${f.height} video:${f.vcodec} audio:${f.acodec}`);
+                });
+                throw new Error('Nessun formato video utilizzabile');
+            }
             
             // Genera i stream per ogni formato disponibile
             const streams = availableFormats.map((format, index) => {
@@ -653,7 +671,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 // Informazioni aggiuntive sul formato
                 const hasAudio = format.acodec && format.acodec !== 'none';
                 const codec = format.vcodec ? format.vcodec.split('.')[0].toUpperCase() : 'MP4';
-                const audioInfo = hasAudio ? '+Audio' : '';
+                const audioInfo = hasAudio ? ' ♪' : ' 📹'; // Nota musicale se ha audio, icona video se solo video
                 const sizeInfo = format.filesize ? 
                     ` (${(format.filesize / 1024 / 1024).toFixed(0)}MB)` : '';
                 
@@ -1024,16 +1042,16 @@ app.get('/proxy-format/:type/:id/:formatId', async (req, res) => {
 
 // Endpoint proxy per diverse qualità (LEGACY - mantenuti per compatibilità)
 app.get('/proxy-360/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=360]/worst');
+    return handleProxyStream(req, res, 'bv*[height<=360]+ba/b[height<=360]/worst+ba/worst');
 });
 
 app.get('/proxy-720/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height<=720][height>480]/best[height<=720]/136+249/135+250');
+    return handleProxyStream(req, res, 'bv*[height<=720][height>360]+ba/b[height<=720][height>360]/bv*[height<=720]+ba/b[height<=720]');
 });
 
 // Nuovo endpoint per streaming proxy diretto (qualità massima ≥1080p)  
 app.get('/proxy/:type/:id', async (req, res) => {
-    return handleProxyStream(req, res, 'best[height>=1080]/299+250/best');
+    return handleProxyStream(req, res, 'bv*[height>=720]+ba/b[height>=720]/bv*+ba/b');
 });
 
 // Funzione condivisa per gestire il proxy streaming
